@@ -551,12 +551,30 @@ def generate_chatbot_answer(user_input, engine_choice, api_key):
         except Exception:
             pass
 
-    query_lower = user_input.lower()
-    if "google" in query_lower:
-        return ("### 🌐 Google (Alphabet Inc.) Overview\n\n"
-                "Google is a leading global technology company specializing in internet search, cloud computing (GCP), AI research (Gemini), and software.")
-    elif "python" in query_lower or "prime" in query_lower:
+    # Built-in Intelligent Response Engine (for offline/demo mode when OpenAI API key or Ollama is not configured)
+    query_lower = user_input.lower().strip()
+    
+    # 1. Specific "What is Python" or Python programming language query
+    if ("what is python" in query_lower or query_lower == "python" or 
+        ("python" in query_lower and any(w in query_lower for w in ["what", "explain", "definition", "overview", "language", "use", "used"]))):
+        return ("### 🐍 Python Programming Language\n\n"
+                "**Python** is a high-level, interpreted, general-purpose programming language renowned for its clean readability, simplicity, and powerful ecosystem.\n\n"
+                "#### Key Highlights:\n"
+                "- **Syntax & Readability:** Emphasizes code readability using clear indentation, making it accessible for beginners and powerful for experts.\n"
+                "- **Versatile Ecosystem:** Widely used in **Artificial Intelligence & Machine Learning** (`PyTorch`, `TensorFlow`, `scikit-learn`), **Data Science** (`pandas`, `numpy`), **Web Development** (`Django`, `FastAPI`, `Streamlit`), and **Cybersecurity / Automation**.\n"
+                "- **Cross-Platform:** Runs seamlessly on Windows, macOS, Linux, and Cloud environments.\n\n"
+                "```python\n"
+                "# Example: Clean Python syntax\n"
+                "def welcome_message(name):\n"
+                "    return f'Hello {name}, welcome to Python!'\n"
+                "\n"
+                "print(welcome_message('AI Developer'))\n"
+                "```")
+    
+    # 2. Specific Prime number code query
+    elif "prime" in query_lower and any(w in query_lower for w in ["code", "check", "number", "function", "program", "algorithm"]):
         return ("### 🐍 Python Prime Number Algorithm\n\n"
+                "Here is an efficient Python function to check whether a given number is prime:\n\n"
                 "```python\n"
                 "def is_prime(n):\n"
                 "    if n <= 1:\n"
@@ -565,12 +583,39 @@ def generate_chatbot_answer(user_input, engine_choice, api_key):
                 "        if n % i == 0:\n"
                 "            return False\n"
                 "    return True\n"
+                "\n"
+                "# Test instances\n"
+                "print(is_prime(17))  # Returns True\n"
+                "print(is_prime(20))  # Returns False\n"
                 "```\n\n"
-                "This algorithm checks prime numbers efficiently in **O(√N)** time complexity.")
+                "**Complexity:** Time complexity is **O(√N)** because divisors only need to be checked up to the square root of `N`.")
+    
+    # 3. Google & Gemini AI inquiries
+    elif "google" in query_lower or "gemini" in query_lower:
+        return ("### 🌐 Google & Gemini AI Architecture\n\n"
+                "**Google (Alphabet Inc.)** is a global leader in artificial intelligence, search engines, and cloud infrastructure.\n\n"
+                "- **Gemini AI:** Google's multimodal AI model family designed for complex reasoning across text, code, images, and audio.\n"
+                "- **Google Cloud Platform (GCP):** Provides secure cloud computing, BigQuery analytics, and Vertex AI infrastructure.")
+
+    # 4. Cybersecurity & Malware Defense Inquiry
+    elif any(w in query_lower for w in ["malware", "cyber", "firewall", "security", "defense", "ransomware", "hack"]):
+        return (f"### 🛡️ Cybersecurity & Defensive Overview\n\n"
+                f"Your query **\"{user_input}\"** addresses critical cybersecurity concepts.\n\n"
+                f"#### Core Security Principles:\n"
+                f"- **Defense in Depth:** Implementing multiple layers of security (firewalls, identity verification, intent classifiers).\n"
+                f"- **Input Validation & Sanitization:** Neutralizing malicious payloads and prompt injection attacks before reaching model backends.\n"
+                f"- **Telemetry & Audit Logging:** Monitoring continuous access patterns to detect unauthorized behavior in real time.")
+
+    # 5. General / Default Safe Query Answer
     else:
-        return (f"### 🤖 Verified AI Response\n\n"
-                f"Your query **\"{user_input}\"** was evaluated by the **LLM Security Firewall**.\n\n"
-                f"✅ **Verdict:** `ALLOW (200 OK)` — Verified safe. Forwarded to the target model.")
+        return (f"### 🤖 AI Assistant Response\n\n"
+                f"**Query:** *\"{user_input}\"*\n\n"
+                f"Your prompt has been processed and verified safe by the **LLM Security Gateway & Semantic Safety Firewall**.\n\n"
+                f"#### Key Summary:\n"
+                f"- **Security Verdict:** `ALLOW (200 OK)` — Verified clean of prompt injections and cyber threat signatures.\n"
+                f"- **Status:** All guardrails passed successfully. Ready for downstream execution.\n\n"
+                f"*Tip: To activate real-time generative responses from OpenAI or Ollama, select the provider in the left sidebar and enter your API key.*")
+
 
 # ---------------------------------------------------------
 # 7. SIDEBAR CONTROLS
