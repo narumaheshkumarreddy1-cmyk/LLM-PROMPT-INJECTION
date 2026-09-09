@@ -597,9 +597,20 @@ def generate_ai_image(prompt_text, api_key):
         except Exception:
             pass
 
-    # Dynamic Free AI Image Engine for ANY prompt (dog, snake, cat, car, cyber, space, etc.)
-    encoded_prompt = urllib.parse.quote(prompt_text.strip())
+    # Clean prompt text to pass best subject descriptor to free AI engine
+    clean_p = prompt_text.lower().replace("i need", "").replace("generate", "").replace("an image of", "").replace("a photo of", "").replace("a picture of", "").strip()
+    subject = clean_p if clean_p else prompt_text.strip()
+    encoded_prompt = urllib.parse.quote(subject)
     return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true"
+
+def is_image_request_prompt(prompt_text):
+    p_lower = prompt_text.lower().strip()
+    triggers = ["image", "img", "picture", "pic", "photo", "draw", "generate", "create", "wallpaper", "portrait", "illustration", "snake", "dog", "cat", "car", "lion", "tiger", "bird"]
+    if any(w in p_lower for w in triggers):
+        return True
+    if p_lower.startswith(("i need", "give me", "show me", "a photo of", "an image of", "a picture of")):
+        return True
+    return False
 
 
 # ---------------------------------------------------------
@@ -608,8 +619,7 @@ def generate_ai_image(prompt_text, api_key):
 def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key):
     query_lower = user_input.lower().strip()
 
-    image_keywords = ["image", "picture", "photo", "draw", "snake", "dog", "cat", "car", "lion", "tiger", "bird", "wallpaper", "generate image"]
-    if any(w in query_lower for w in image_keywords):
+    if is_image_request_prompt(user_input):
         img_url = generate_ai_image(user_input, api_key)
         return {
             "type": "image",
@@ -617,6 +627,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             "caption": "AI Image generated using DALL-E 3" if api_key else "Real AI Image generated (Pollinations Engine)",
             "content": f"Here is the generated image for: *\"{user_input}\"*"
         }
+
 
 
     system_instruction = (
@@ -989,8 +1000,20 @@ with dock_col1:
 
 with dock_col2:
     if st.button("🖼️ Generate Image", use_container_width=True):
-        st.session_state.chat_history.append({"role": "user", "content": "Generate an image of a snake in a forest"})
+        img_prompt = user_prompt_input.strip() if (user_prompt_input and user_prompt_input.strip()) else "Generate an image of a snake in a forest"
+        st.session_state.chat_history.append({"role": "user", "content": img_prompt})
+        res = aggregate_security_pipeline(img_prompt, engine_choice, api_key)
+        ans = generate_chatbot_answer(img_prompt, st.session_state.chat_history, engine_choice, api_key)
+        st.session_state.total_scanned += 1
+        if res["action"] == "BLOCK":
+            st.session_state.blocked_requests += 1
+        elif res["action"] == "FLAG":
+            st.session_state.flagged_requests += 1
+        else:
+            st.session_state.allowed_requests += 1
+        st.session_state.chat_history.append({"role": "assistant", "res": res, "answer": ans})
         st.rerun()
+
 
 with dock_col3:
     user_prompt_input = st.chat_input("Type your message or upload a file...")
