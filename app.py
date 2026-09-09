@@ -576,10 +576,13 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
         "reason": reason
     }
 
+import urllib.parse
+
 # ---------------------------------------------------------
-# 6. IMAGE GENERATOR ENGINE
+# 6. DYNAMIC REAL AI IMAGE GENERATOR ENGINE
 # ---------------------------------------------------------
 def generate_ai_image(prompt_text, api_key):
+    """Generates real AI images matching ANY prompt (dog, snake, car, cyber, etc.)."""
     if api_key:
         try:
             client = openai.OpenAI(api_key=api_key)
@@ -594,16 +597,9 @@ def generate_ai_image(prompt_text, api_key):
         except Exception:
             pass
 
-    # Contextual Fallback Images matching prompt keywords
-    p_lower = prompt_text.lower()
-    if "snake" in p_lower:
-        return "https://images.unsplash.com/photo-1531386151447-fd76ad50012f?auto=format&fit=crop&w=1000&q=80"
-    elif any(w in p_lower for w in ["cyber", "firewall", "security", "network"]):
-        return "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1000&q=80"
-    elif any(w in p_lower for w in ["code", "python", "java", "developer"]):
-        return "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1000&q=80"
-    else:
-        return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1000&q=80"
+    # Dynamic Free AI Image Engine for ANY prompt (dog, snake, cat, car, cyber, space, etc.)
+    encoded_prompt = urllib.parse.quote(prompt_text.strip())
+    return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true"
 
 
 # ---------------------------------------------------------
@@ -612,14 +608,16 @@ def generate_ai_image(prompt_text, api_key):
 def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key):
     query_lower = user_input.lower().strip()
 
-    if any(w in query_lower for w in ["snake", "image", "picture", "draw", "generate image"]):
+    image_keywords = ["image", "picture", "photo", "draw", "snake", "dog", "cat", "car", "lion", "tiger", "bird", "wallpaper", "generate image"]
+    if any(w in query_lower for w in image_keywords):
         img_url = generate_ai_image(user_input, api_key)
         return {
             "type": "image",
             "url": img_url,
-            "caption": "Image generated successfully using DALL-E 3" if api_key else "Image generated (Demo View)",
+            "caption": "AI Image generated using DALL-E 3" if api_key else "Real AI Image generated (Pollinations Engine)",
             "content": f"Here is the generated image for: *\"{user_input}\"*"
         }
+
 
     system_instruction = (
         "You are a helpful, secure AI assistant. Provide clear, accurate, comprehensive, and professional responses."
