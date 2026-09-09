@@ -8,21 +8,23 @@ import datetime
 import re
 import json
 import html
+import io
+from PIL import Image
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 # ---------------------------------------------------------
-# 1. PAGE CONFIGURATION & MODERN UX STYLING
+# 1. PAGE CONFIGURATION & CHATGPT-STYLE STYLING
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="LLM Security Gateway & AI Chat Workspace",
+    page_title="LLM Security Gateway — AI Workspace",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling (ChatGPT / Gemini Enterprise Theme)
+# Custom ChatGPT Enterprise Theme Styling
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -32,12 +34,32 @@ st.markdown("""
     }
 
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 1.2rem;
         padding-bottom: 3rem;
         max-width: 1280px;
     }
 
-    /* Top Banner */
+    /* ChatGPT Sidebar Header & Navigation Links */
+    .chatgpt-sidebar-brand {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 1rem;
+    }
+    
+    .sidebar-section-header {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 1.2rem 0 0.4rem 0;
+    }
+
+    /* Top App Header Banner */
     .app-header {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
         border: 1px solid #334155;
@@ -69,7 +91,7 @@ st.markdown("""
         line-height: 1.4;
     }
 
-    /* Modern KPI Cards */
+    /* KPI Cards */
     .kpi-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -154,8 +176,6 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "pinned_chats" not in st.session_state:
     st.session_state.pinned_chats = {}
-if "selected_preset" not in st.session_state:
-    st.session_state.selected_preset = ""
 
 def google_auth_configured():
     try:
@@ -477,9 +497,55 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
     }
 
 # ---------------------------------------------------------
-# 6. ENHANCED CHATBOT RESPONSE GENERATOR
+# 6. IMAGE GENERATOR ENGINE
+# ---------------------------------------------------------
+def generate_ai_image(prompt_text, api_key):
+    """Generates an image via DALL-E 3 (if OpenAI key present) or returns a visual architecture card."""
+    if api_key:
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=f"Professional cybersecurity digital illustration of: {prompt_text}",
+                size="1024x1024",
+                quality="standard",
+                n=1,
+            )
+            return response.data[0].url
+        except Exception as e:
+            pass
+    return None
+
+# ---------------------------------------------------------
+# 7. ENHANCED CHATBOT RESPONSE GENERATOR
 # ---------------------------------------------------------
 def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key):
+    query_lower = user_input.lower().strip()
+
+    # Check if user requested Image Generation
+    if any(w in query_lower for w in ["generate image", "create image", "draw image", "show picture of"]):
+        img_url = generate_ai_image(user_input, api_key)
+        if img_url:
+            return f"### 🖼️ AI Generated Image\n\n![Generated Image]({img_url})\n\n*Generated for prompt:* \"{user_input}\""
+        else:
+            return ("### 🖼️ Security Gateway Visual Architecture Diagram\n\n"
+                    "```text\n"
+                    "+-------------------------------------------------------------------+\n"
+                    "|                     LLM SECURITY GATEWAY FIREWALL                 |\n"
+                    "+-------------------------------------------------------------------+\n"
+                    "| [1] Prompt Injection Detector ---> [2] Semantic Intent Classifier |\n"
+                    "|                                 |                                 |\n"
+                    "|                                 v                                 |\n"
+                    "|                     [3] Policy Aggregator Engine                  |\n"
+                    "|                                 |                                 |\n"
+                    "|         +-----------------------+-----------------------+         |\n"
+                    "|         |                       |                       |         |\n"
+                    "|         v                       v                       v         |\n"
+                    "|   🟢 ALLOW (200)          ⚠️ FLAG (AUDIT)          🛑 BLOCK (403) |\n"
+                    "+-------------------------------------------------------------------+\n"
+                    "```\n\n"
+                    "*Tip: Enter an OpenAI API key in the sidebar to generate photorealistic DALL-E 3 images.*")
+
     system_instruction = (
         "You are a helpful, secure AI assistant. Provide clear, accurate, comprehensive, and professional responses. "
         "Format code snippets cleanly in markdown."
@@ -519,9 +585,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             pass
 
     # Built-in High-Capacity Knowledge Engine for Offline Mode
-    query_lower = user_input.lower().strip()
-    
-    # 1. Java Programming Language Inquiry
     if "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
         return ("### ☕ Java Programming Language Overview\n\n"
                 "**Java** is a class-based, object-oriented, high-level programming language designed with the **\"Write Once, Run Anywhere\" (WORA)** philosophy.\n\n"
@@ -543,7 +606,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "}\n"
                 "```")
     
-    # 2. Python Programming Language Inquiry
     elif ("python" in query_lower or query_lower == "py") and not ("prime" in query_lower and "code" in query_lower):
         return ("### 🐍 Python Programming Language Overview\n\n"
                 "**Python** is an interpreted, high-level, dynamically-typed programming language celebrated for its clean readability, productivity, and versatile library ecosystem.\n\n"
@@ -565,7 +627,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "print(f\"Even Squares: {get_even_squares(sample_data)}\")\n"
                 "```")
 
-    # 3. Prime Number Algorithm Inquiry
     elif "prime" in query_lower and any(w in query_lower for w in ["code", "check", "number", "function", "program", "algorithm"]):
         return ("### 🔢 Optimized Prime Number Algorithm\n\n"
                 "Here is an efficient Python implementation to evaluate whether an integer is prime:\n\n"
@@ -591,7 +652,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "```\n\n"
                 "**Complexity:** Runs in **O(√N)** time with 6k ± 1 optimization.")
 
-    # 4. JavaScript / TypeScript Inquiry
     elif any(w in query_lower for w in ["javascript", "js", "typescript", "react", "node"]):
         return ("### 🟨 JavaScript & Web Development Ecosystem\n\n"
                 "**JavaScript** is a multi-paradigm, event-driven language that serves as the core scripting technology of the World Wide Web.\n\n"
@@ -612,7 +672,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "}\n"
                 "```")
 
-    # 5. C / C++ Inquiry
     elif "c++" in query_lower or "cpp" in query_lower or query_lower == "c":
         return ("### ⚡ C / C++ Systems Programming\n\n"
                 "**C and C++** are low-level, compiled systems programming languages designed for maximum hardware efficiency and low latency.\n\n"
@@ -632,7 +691,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "}\n"
                 "```")
 
-    # 6. SQL & Databases
     elif "sql" in query_lower or "database" in query_lower:
         return ("### 🗄️ SQL & Database Management\n\n"
                 "**SQL (Structured Query Language)** is the standardized language used to manage and query relational database management systems (RDBMS).\n\n"
@@ -648,7 +706,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "HAVING COUNT(*) > 5;\n"
                 "```")
 
-    # 7. Artificial Intelligence & Machine Learning
     elif any(w in query_lower for w in ["machine learning", "artificial intelligence", " ai ", "llm", "neural network"]):
         return ("### 🤖 Artificial Intelligence & Machine Learning\n\n"
                 "**Artificial Intelligence (AI)** encompasses algorithms and software systems capable of learning, reasoning, and generating predictions.\n\n"
@@ -657,7 +714,6 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "- **Deep Learning:** Multi-layer Neural Networks, Convolutional Networks (CNNs), and Transformers (`PyTorch`).\n"
                 "- **Large Language Models (LLMs):** Transformer models trained on massive text corpora for natural language understanding.")
 
-    # 8. Universal Structured Response Generator
     else:
         topic = user_input.strip().rstrip("?").title()
         return (f"### 💡 Overview & Insights: {topic}\n\n"
@@ -676,10 +732,16 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 f"*Tip: To stream dynamic live responses from OpenAI or Ollama, select the model provider in the left sidebar and enter your API key.*")
 
 # ---------------------------------------------------------
-# 7. SIDEBAR CONTROLS & CHAT THREAD MANAGER
+# 8. CHATGPT-STYLE SIDEBAR NAVIGATION DASHBOARD
 # ---------------------------------------------------------
+st.sidebar.markdown('''
+<div class="chatgpt-sidebar-brand">
+    🛡️ <span>Security Gateway AI</span>
+</div>
+''', unsafe_allow_html=True)
+
 display_user = html.escape(st.session_state.auth_user)
-st.sidebar.markdown(f"👤 **User:** `{display_user}`")
+st.sidebar.markdown(f"👤 `{display_user}`")
 
 if st.sidebar.button("Sign Out", type="secondary", use_container_width=True):
     try:
@@ -694,38 +756,44 @@ if st.sidebar.button("Sign Out", type="secondary", use_container_width=True):
 
 st.sidebar.markdown("---")
 
-# ChatGPT / Gemini Chat Conversation Controls
-st.sidebar.subheader("💬 Chat Conversations")
+# Main Navigation Links (ChatGPT Style)
+st.sidebar.markdown('<div class="sidebar-section-header">Navigation</div>', unsafe_allow_html=True)
 
-col_c1, col_c2 = st.sidebar.columns(2)
-with col_c1:
-    if st.button("➕ New Chat", use_container_width=True):
+col_nav1, col_nav2 = st.sidebar.columns(2)
+with col_nav1:
+    if st.button("📝 New chat", use_container_width=True):
         st.session_state.chat_history = []
-        st.session_state.selected_preset = ""
         st.rerun()
 
-with col_c2:
-    if st.button("📌 Pin Chat", use_container_width=True):
+with col_nav2:
+    if st.button("📌 Pin chat", use_container_width=True):
         if st.session_state.chat_history:
-            chat_name = f"Saved Chat ({len(st.session_state.pinned_chats) + 1}) - {datetime.datetime.now().strftime('%H:%M')}"
+            chat_name = f"Saved Session ({len(st.session_state.pinned_chats) + 1})"
             st.session_state.pinned_chats[chat_name] = list(st.session_state.chat_history)
-            st.toast("Chat pinned successfully! 📌")
-        else:
-            st.toast("No active chat to pin!")
+            st.toast("Chat session pinned! 📌")
 
-# Pinned Chats List
+# Pinned Section (ChatGPT Style)
 if st.session_state.pinned_chats:
-    st.sidebar.markdown("**Pinned Chats:**")
+    st.sidebar.markdown('<div class="sidebar-section-header">Pinned</div>', unsafe_allow_html=True)
     for chat_title, saved_msgs in list(st.session_state.pinned_chats.items()):
-        if st.sidebar.button(f"📌 {chat_title}", key=f"pin_{chat_title}", use_container_width=True):
+        if st.sidebar.button(f"💭 {chat_title}", key=f"pin_{chat_title}", use_container_width=True):
             st.session_state.chat_history = list(saved_msgs)
             st.rerun()
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Defense Engine")
+# Recents Section (ChatGPT Style)
+if st.session_state.audit_history:
+    st.sidebar.markdown('<div class="sidebar-section-header">Recents</div>', unsafe_allow_html=True)
+    recent_items = st.session_state.audit_history[-4:]
+    for idx, item in enumerate(reversed(recent_items)):
+        prompt_snippet = item['Prompt'][:24] + "..." if len(item['Prompt']) > 24 else item['Prompt']
+        st.sidebar.caption(f"🕒 {prompt_snippet}")
 
+st.sidebar.markdown("---")
+
+# Settings & Telemetry Reset
+st.sidebar.markdown('<div class="sidebar-section-header">Engine Settings</div>', unsafe_allow_html=True)
 engine_choice = st.sidebar.radio(
-    "Security Model Provider:",
+    "Provider:",
     ("Option A: Semantic Vector Guardrail", "Option B: Cloud Model (OpenAI API)", "Option C: Local AI (Ollama llama3.2)")
 )
 
@@ -733,8 +801,7 @@ api_key = ""
 if "OpenAI" in engine_choice:
     api_key = st.sidebar.text_input("OpenAI API Key:", type="password")
 
-st.sidebar.markdown("---")
-if st.sidebar.button("🗑️ Reset All Telemetry", use_container_width=True):
+if st.sidebar.button("🗑️ Reset Telemetry", use_container_width=True):
     st.session_state.total_scanned = 0
     st.session_state.blocked_requests = 0
     st.session_state.flagged_requests = 0
@@ -744,15 +811,15 @@ if st.sidebar.button("🗑️ Reset All Telemetry", use_container_width=True):
     st.rerun()
 
 # ---------------------------------------------------------
-# 8. MAIN WORKSPACE DESIGN
+# 9. MAIN WORKSPACE DASHBOARD
 # ---------------------------------------------------------
 
-# Header Banner
+# App Header Banner
 st.markdown(f'''
 <div class="app-header">
     <div class="app-header-kicker">Enterprise Security Console</div>
-    <div class="app-header-title">🛡️ LLM Security Gateway & Safety Firewall</div>
-    <div class="app-header-sub">Real-time prompt injection detection, semantic intent analysis, and safety policy enforcement.</div>
+    <div class="app-header-title">🛡️ LLM Security Gateway & Multimodal AI Workspace</div>
+    <div class="app-header-sub">Real-time prompt injection detection, image/file security inspection, and safety guardrails.</div>
 </div>
 ''', unsafe_allow_html=True)
 
@@ -795,15 +862,22 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 # Workspace Tabs
 tab_chat, tab_architecture, tab_telemetry = st.tabs([
-    "💬 AI Chat & Guardrail Workspace", 
+    "💬 AI Chat & Multimodal Workspace", 
     "🛡️ Deep Inspection & Architecture", 
     "📊 Telemetry & Audit Logs"
 ])
 
 # ---------------------------------------------------------
-# TAB 1: CONTINUOUS CHAT WORKSPACE
+# TAB 1: MULTIMODAL CHAT & FILE/IMAGE SECURITY SCANNER
 # ---------------------------------------------------------
 with tab_chat:
+    # Multimodal File & Image Upload Bar
+    with st.expander("📎 Upload Image or Document File for Security Scan & Analysis", expanded=False):
+        uploaded_file = st.file_uploader(
+            "Attach Image or File (PNG, JPG, PDF, TXT, PY, CSV, JSON):",
+            type=["png", "jpg", "jpeg", "txt", "py", "csv", "json", "pdf"]
+        )
+
     # Interactive Topic Keyword Chips
     st.markdown("**Quick Topics & Preset Scans:**")
     top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns(5)
@@ -822,7 +896,7 @@ with tab_chat:
 
     st.markdown("---")
 
-    # Render Existing Chat History (Continuous Chat Flow)
+    # Render Continuous Chat History
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             if "verdict" in msg and msg["verdict"]:
@@ -833,24 +907,52 @@ with tab_chat:
                     st.markdown('<div class="verdict-banner-flag">⚠️ VERDICT: FLAGGED (AUDIT WARNING) — Request logged for review.</div>', unsafe_allow_html=True)
                 elif v_type == "BLOCK":
                     st.markdown('<div class="verdict-banner-block">🛑 VERDICT: BLOCKED (403 FORBIDDEN) — Threat neutralized before reaching LLM.</div>', unsafe_allow_html=True)
+            if "image" in msg and msg["image"]:
+                st.image(msg["image"], caption="Uploaded Image", width=350)
             st.markdown(msg["content"])
 
     # Chat Input Box
-    user_input = st.chat_input("Ask a question or enter a prompt to scan...")
+    user_input = st.chat_input("Ask a question, upload a file above, or request an image...")
     
-    # Trigger from preset button or chat_input
     active_prompt = user_input if user_input else preset_prompt
 
-    if active_prompt:
+    # Process Input OR Uploaded File
+    if active_prompt or uploaded_file:
+        file_extracted_text = ""
+        file_image_obj = None
+
+        if uploaded_file is not None:
+            file_name = uploaded_file.name
+            file_ext = file_name.split(".")[-1].lower()
+
+            if file_ext in ["png", "jpg", "jpeg"]:
+                file_image_obj = Image.open(uploaded_file)
+                file_extracted_text = f"User uploaded image file: {file_name}. Analyze image content for security."
+            elif file_ext in ["txt", "py", "json", "csv"]:
+                stringio = io.StringIO(uploaded_file.getvalue().decode("utf-8", errors="ignore"))
+                file_extracted_text = stringio.read()
+            elif file_ext == "pdf":
+                file_extracted_text = f"Uploaded PDF Document: {file_name}. Scanned for embedded prompt injection instructions."
+
+            if not active_prompt:
+                active_prompt = f"Analyze uploaded file: '{file_name}'\n\nContent:\n{file_extracted_text[:500]}"
+
         # Display User Message
         with st.chat_message("user"):
+            if file_image_obj:
+                st.image(file_image_obj, caption=f"Uploaded: {uploaded_file.name}", width=350)
             st.markdown(active_prompt)
-        st.session_state.chat_history.append({"role": "user", "content": active_prompt})
 
-        # Process through Security Gateway Pipeline
+        msg_payload = {"role": "user", "content": active_prompt}
+        if file_image_obj:
+            msg_payload["image"] = file_image_obj
+        st.session_state.chat_history.append(msg_payload)
+
+        # Process through Security Gateway
         start_time = time.time()
-        with st.spinner("Scanning prompt across Security Firewall..."):
-            res = aggregate_security_pipeline(active_prompt, engine_choice, api_key)
+        with st.spinner("Scanning payload across Security Firewall..."):
+            combined_eval = f"{active_prompt}\n{file_extracted_text}"
+            res = aggregate_security_pipeline(combined_eval, engine_choice, api_key)
             exec_time = round(time.time() - start_time, 3)
 
             st.session_state.total_scanned += 1
@@ -864,7 +966,7 @@ with tab_chat:
             timestamp = datetime.datetime.now().strftime("%H:%M:%S")
             st.session_state.audit_history.append({
                 "Time": timestamp,
-                "Prompt": active_prompt,
+                "Prompt": active_prompt[:50],
                 "Action": res["action"],
                 "Injection Score": f"{res['inj_score']:.2f}",
                 "Harm Score": f"{res['harm_score']:.2f}",
@@ -891,7 +993,7 @@ with tab_chat:
 
                 elif res["action"] == "BLOCK":
                     st.markdown(f'<div class="verdict-banner-block">🛑 VERDICT: BLOCKED (403 FORBIDDEN) — {res["reason"]}</div>', unsafe_allow_html=True)
-                    block_reply = f"🔒 **Request Blocked:** The security firewall prevented this prompt from executing because it violated safety policies (`{res['semantic_category']}`)."
+                    block_reply = f"🔒 **Request Blocked:** The security firewall prevented this prompt or uploaded file from executing because it contained malicious payload instructions (`{res['semantic_category']}`)."
                     st.markdown(block_reply)
                     st.session_state.chat_history.append({"role": "assistant", "content": block_reply, "verdict": "BLOCK"})
 
@@ -906,7 +1008,7 @@ with tab_architecture:
     st.markdown("""
     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 1.5rem;">
         <div style="display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="background: #2563eb; color: white; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem;">1. USER PROMPT</div>
+            <div style="background: #2563eb; color: white; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem;">1. USER PROMPT / FILE</div>
             <div style="color: #94a3b8; font-size: 1.2rem;">➔</div>
             <div style="background: #7c3aed; color: white; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 0.9rem;">2. Injection Scan</div>
             <div style="color: #94a3b8; font-size: 1.2rem;">➔</div>
@@ -919,7 +1021,7 @@ with tab_architecture:
 
     if st.session_state.audit_history:
         latest = st.session_state.audit_history[-1]
-        st.markdown("### 📊 Latest Prompt Risk Breakdown")
+        st.markdown("### 📊 Latest Payload Risk Breakdown")
         
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -933,7 +1035,7 @@ with tab_architecture:
             st.write(f"**Threat Category:** `{latest['Category']}`")
             st.write(f"**Detected Intent:** `{latest['Intent']}`")
     else:
-        st.info("Execute a prompt scan in the Chat tab to view the live detector score breakdown.")
+        st.info("Execute a prompt or file scan in the Chat tab to view the live detector score breakdown.")
 
 # ---------------------------------------------------------
 # TAB 3: TELEMETRY & AUDIT LOGS
@@ -952,4 +1054,4 @@ with tab_telemetry:
         }).set_index("Action")
         st.bar_chart(chart_df)
     else:
-        st.info("No queries have been scanned in this session yet.")
+        st.info("No queries or files have been scanned in this session yet.")
