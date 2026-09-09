@@ -585,7 +585,7 @@ def generate_ai_image(prompt_text, api_key):
             client = openai.OpenAI(api_key=api_key)
             response = client.images.generate(
                 model="dall-e-3",
-                prompt=f"High resolution realistic image of: {prompt_text}",
+                prompt=f"High resolution realistic photo of: {prompt_text}",
                 size="1024x1024",
                 quality="standard",
                 n=1,
@@ -593,7 +593,18 @@ def generate_ai_image(prompt_text, api_key):
             return response.data[0].url
         except Exception:
             pass
-    return "https://images.unsplash.com/photo-1534361960057-19889db9621e?auto=format&fit=crop&w=1000&q=80"
+
+    # Contextual Fallback Images matching prompt keywords
+    p_lower = prompt_text.lower()
+    if "snake" in p_lower:
+        return "https://images.unsplash.com/photo-1531386151447-fd76ad50012f?auto=format&fit=crop&w=1000&q=80"
+    elif any(w in p_lower for w in ["cyber", "firewall", "security", "network"]):
+        return "https://images.unsplash.com/photo-1563986768609-322da13575f3?auto=format&fit=crop&w=1000&q=80"
+    elif any(w in p_lower for w in ["code", "python", "java", "developer"]):
+        return "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1000&q=80"
+    else:
+        return "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1000&q=80"
+
 
 # ---------------------------------------------------------
 # 7. ENHANCED CHATBOT RESPONSE GENERATOR
@@ -928,7 +939,16 @@ with right_panel:
     ''', unsafe_allow_html=True)
 
     # Card 2: Prompt Details
-    active_prompt_text = st.session_state.chat_history[-1]["content"] if st.session_state.chat_history else "Generate an image of a snake in a forest"
+    active_prompt_text = "Generate an image of a snake in a forest"
+    if st.session_state.chat_history:
+        last_msg = st.session_state.chat_history[-1]
+        if "content" in last_msg and last_msg["content"]:
+            active_prompt_text = last_msg["content"]
+        elif isinstance(last_msg.get("answer"), dict):
+            active_prompt_text = last_msg["answer"].get("content", "General Prompt Query")
+        elif isinstance(last_msg.get("answer"), str):
+            active_prompt_text = last_msg["answer"]
+
     active_intent = "Image Generation" if any(w in active_prompt_text.lower() for w in ["snake", "image", "picture"]) else "General Query"
 
     st.markdown(f'''
