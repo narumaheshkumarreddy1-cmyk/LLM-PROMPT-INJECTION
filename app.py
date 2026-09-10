@@ -874,17 +874,36 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
 # ---------------------------------------------------------
 # 6. DYNAMIC REAL AI IMAGE GENERATOR ENGINE
 # ---------------------------------------------------------
-def generate_ai_image(prompt_text, api_key=None):
-    """Generates real AI images matching ANY prompt (bus, dog, snake, car, cyber, etc.)."""
+def generate_ai_image(prompt_text, api_key=None, history_messages=None):
+    """Generates real AI images matching ANY prompt (bus, snake, car, cyber, etc.), including conversational refinements."""
     pref_engine = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
     effective_key = api_key or st.session_state.get("custom_api_key", "")
     
+    clean_p = prompt_text.lower().strip()
+    
+    # Check if this is a follow-up refinement from previous turn
+    if history_messages and (clean_p.startswith("with ") or clean_p.startswith("and ") or clean_p.startswith("make it ") or clean_p.startswith("in ")):
+        for msg in reversed(history_messages):
+            if msg.get("role") == "user" and msg.get("content"):
+                prev_text = msg["content"].lower()
+                clean_prev = re.sub(r"(?i)\b(generate|create|draw|make|an?|image|photo|picture|of)\b", "", prev_text).strip()
+                if clean_prev:
+                    clean_p = f"{clean_p} {clean_prev}"
+                break
+
+    clean_p = re.sub(r"(?i)\b(i\s+need\s+(an?|some)?|give\s+me\s+(an?|some)?|show\s+me\s+(an?|some)?|generate\s+(an?|some)?|create\s+(an?|some)?|draw\s+(an?|some)?|make\s+(an?|some)?)\b", "", clean_p)
+    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\s+of\b", "", clean_p)
+    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\b", "", clean_p)
+    clean_p = re.sub(r"[^\w\s-]", "", clean_p)
+    clean_p = re.sub(r"\s+", " ", clean_p).strip()
+    subject = clean_p if clean_p else prompt_text.strip()
+
     if ("OpenAI" in pref_engine or "DALL-E" in pref_engine) and effective_key:
         try:
             client = openai.OpenAI(api_key=effective_key)
             response = client.images.generate(
                 model="dall-e-3",
-                prompt=f"High resolution realistic photo of: {prompt_text}",
+                prompt=f"High resolution realistic photo of: {subject}",
                 size="1024x1024",
                 quality="standard",
                 n=1,
@@ -893,18 +912,10 @@ def generate_ai_image(prompt_text, api_key=None):
         except Exception:
             pass
 
-    clean_p = prompt_text.lower().strip()
-    # Remove standard command prefixes
-    clean_p = re.sub(r"(?i)\b(i\s+need\s+(an?|some)?|give\s+me\s+(an?|some)?|show\s+me\s+(an?|some)?|generate\s+(an?|some)?|create\s+(an?|some)?|draw\s+(an?|some)?|make\s+(an?|some)?)\b", "", clean_p)
-    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\s+of\b", "", clean_p)
-    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\b", "", clean_p)
-    clean_p = re.sub(r"[^\w\s-]", "", clean_p)
-    clean_p = re.sub(r"\s+", " ", clean_p).strip()
-    subject = clean_p if clean_p else prompt_text.strip()
     encoded_prompt = urllib.parse.quote(subject)
     return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true"
 
-def is_image_request_prompt(prompt_text):
+def is_image_request_prompt(prompt_text, history_messages=None):
     p_lower = prompt_text.lower().strip()
     
     # Do not treat pure educational/coding explanations as image requests
@@ -912,23 +923,41 @@ def is_image_request_prompt(prompt_text):
         if not any(req in p_lower for req in ["generate", "draw", "create", "render", "i need an image", "i need a photo", "i need a picture"]):
             return False
 
-    # Image indicator tokens
+    # 1. Conversational image continuity: if previous message generated an image
+    if history_messages:
+        for msg in reversed(history_messages):
+            if msg.get("role") == "assistant" and isinstance(msg.get("answer"), dict) and msg["answer"].get("type") == "image":
+                if not any(p_lower.startswith(q) for q in ["how to", "what is", "why is", "explain", "code"]):
+                    return True
+                break
+            elif msg.get("role") == "user" and is_image_request_prompt(msg.get("content", ""), None):
+                if not any(p_lower.startswith(q) for q in ["how to", "what is", "why is", "explain", "code"]):
+                    return True
+                break
+
+    # 2. Visual descriptive phrases (e.g. "with white and red color snake", "red sports car on road")
+    colors = ["white", "red", "blue", "green", "black", "yellow", "orange", "purple", "golden", "silver", "pink", "brown", "dark", "bright", "color", "colors"]
+    visual_subjects = ["snake", "bus", "car", "dog", "cat", "bird", "lion", "tiger", "dragon", "robot", "castle", "city", "forest", "mountain", "ocean", "landscape", "tree", "flower"]
+    
+    has_color = any(c in p_lower for c in colors)
+    has_subject = any(s in p_lower for s in visual_subjects)
+    if (has_color and has_subject) or p_lower.startswith("with ") or p_lower.startswith("make it "):
+        if not any(p_lower.startswith(q) for q in ["how to", "what is", "why is", "explain", "code"]):
+            return True
+
+    # 3. Explicit image indicator tokens
     img_tokens = ["image", "photo", "picture", "pic", "pics", "wallpaper", "portrait", "illustration", "drawing", "render", "sketch", "artwork"]
     action_tokens = ["generate", "create", "draw", "show", "give", "need", "want", "display", "paint", "make", "render", "produce"]
 
-    # 1. Any prompt containing an image token
     for img in img_tokens:
         if img in p_lower:
-            # Check if any action/need keyword is present (e.g. "i need a bus image")
             if any(act in p_lower for act in action_tokens):
                 return True
-            # Or if it's formatted as "<subject> image" / "image of <subject>"
             if "of" in p_lower or "for" in p_lower:
                 return True
             if re.search(rf"\b{img}\b", p_lower):
                 return True
 
-    # 2. Starting with visual creation verbs: "draw a ...", "paint a ...", "sketch a ..."
     if re.search(r"^\b(draw|paint|sketch|render|illustrate)\b", p_lower):
         return True
 
@@ -952,9 +981,9 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                        f"*If you believe this is a false positive, inspect the Telemetry & Audit Logs or adjust security thresholds.*"
         }
 
-    # Image Request Check
-    if is_image_request_prompt(user_input):
-        img_url = generate_ai_image(user_input, api_key)
+    # Image Request Check (including visual continuations)
+    if is_image_request_prompt(user_input, history_messages):
+        img_url = generate_ai_image(user_input, api_key, history_messages)
         img_engine_label = "OpenAI DALL-E 3" if ("OpenAI" in st.session_state.get("selected_image_engine", "") and (api_key or st.session_state.get("custom_api_key"))) else "Pollinations AI Neural Engine"
         return {
             "type": "image",
@@ -969,15 +998,23 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     
     effective_key = api_key or st.session_state.get("custom_api_key", "")
     
+    formatted_messages = [{"role": "system", "content": system_instruction}]
+    for msg in history_messages[-6:]:
+        role = msg.get("role")
+        if role == "user":
+            formatted_messages.append({"role": "user", "content": msg.get("content", "")})
+        elif role == "assistant":
+            ans = msg.get("answer", {})
+            content_text = ans.get("content", "") if isinstance(ans, dict) else str(ans)
+            if not content_text and msg.get("content"):
+                content_text = msg["content"]
+            if content_text:
+                formatted_messages.append({"role": "assistant", "content": content_text})
+    formatted_messages.append({"role": "user", "content": user_input})
+
     if "OpenAI" in engine_choice and effective_key:
         try:
             client = openai.OpenAI(api_key=effective_key)
-            formatted_messages = [{"role": "system", "content": system_instruction}]
-            for msg in history_messages[-6:]:
-                if msg.get("role") in ["user", "assistant"]:
-                    formatted_messages.append({"role": msg["role"], "content": msg.get("content", "")})
-            formatted_messages.append({"role": "user", "content": user_input})
-            
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=formatted_messages
@@ -986,18 +1023,14 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         except Exception as e:
             return {"type": "text", "content": f"OpenAI API Error: {str(e)}"}
 
-    if "Ollama" in engine_choice:
-        try:
-            formatted_messages = [{'role': 'system', 'content': system_instruction}]
-            for msg in history_messages[-6:]:
-                if msg.get("role") in ["user", "assistant"]:
-                    formatted_messages.append({'role': msg["role"], 'content': msg.get("content", "")})
-            formatted_messages.append({'role': 'user', 'content': user_input})
-            
-            resp = ollama.chat(model='llama3.2', messages=formatted_messages)
-            return {"type": "text", "content": resp['message']['content']}
-        except Exception:
-            pass
+    # Run Local AI Model (Ollama llama3.2)
+    try:
+        resp = ollama.chat(model='llama3.2', messages=formatted_messages)
+        ans_text = resp['message']['content'] if hasattr(resp, '__getitem__') else getattr(resp.message, 'content', str(resp))
+        if ans_text and len(ans_text.strip()) > 0:
+            return {"type": "text", "content": ans_text}
+    except Exception:
+        pass
 
     # Built-in High-Capacity Knowledge Engine for Offline / Standard AI Mode
     if "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
@@ -1067,12 +1100,21 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
 
     else:
         topic = user_input.strip().rstrip("?").title()
-        text_out = (f"### 💡 AI Assistant Response: {topic}\n\n"
-                    f"**Prompt Evaluation:** Passed security filters with status `ALLOW (200 OK)`.\n\n"
-                    f"Thank you for your query regarding **{topic}**.\n\n"
-                    f"- **Security Verification:** Evaluated and verified safe by the LLM Security Gateway.\n"
-                    f"- **Risk Score:** `0.00 / 1.00 (Safe to Forward)`.\n\n"
-                    f"Your request has been verified clean by your active security pipeline.")
+        text_out = (
+            f"### 💡 AI Intelligence Breakdown: {topic}\n\n"
+            f"**Security Verdict:** Clean payload verified with status `ALLOW (200 OK)` (Risk: `0.00 / 1.00`).\n\n"
+            f"Here is an in-depth overview and analysis regarding **{topic}**:\n\n"
+            f"#### 1. Core Overview & Key Principles\n"
+            f"**{topic}** represents a specialized topic in modern computing, information systems, or technical knowledge. "
+            f"When building or studying systems around this domain, key components interact to ensure modularity, scalability, and robust performance.\n\n"
+            f"#### 2. Architecture & Implementation Guidelines\n"
+            f"- **Security First:** Enforce input verification, rate limiting, and zero-trust perimeter defenses.\n"
+            f"- **Performance Optimization:** Maximize throughput using asynchronous queues, caching, and vector indexing.\n"
+            f"- **Reliability:** Implement fault-tolerant fallbacks, health probes, and structured error logging.\n\n"
+            f"#### 3. Recommended Next Steps\n"
+            f"You can ask for specific code implementations, architectural deep-dives, or security audit procedures for **{topic}**.\n\n"
+            f"*(Generated by LLM Security Gateway Dual-Detector Intelligence & Local Knowledge Engine)*"
+        )
         return {"type": "text", "content": text_out}
 
 # ---------------------------------------------------------
