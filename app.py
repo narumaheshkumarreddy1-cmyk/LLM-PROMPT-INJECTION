@@ -49,14 +49,18 @@ st.markdown("""
         color: #cbd5e1;
     }
     
-    /* Sleek ChatGPT / Gemini Dark Sidebar Button Styling */
+    /* Complete Dark Sidebar Button Styling */
+    section[data-testid="stSidebar"] button,
+    section[data-testid="stSidebar"] [data-testid*="Button"],
+    section[data-testid="stSidebar"] [data-testid*="button"],
     section[data-testid="stSidebar"] div.stButton > button {
         background-color: #1e293b !important;
+        background: #1e293b !important;
         color: #f1f5f9 !important;
         border: 1px solid #334155 !important;
         border-radius: 8px !important;
-        padding: 0.4rem 0.55rem !important;
-        font-size: 0.83rem !important;
+        padding: 0.45rem 0.65rem !important;
+        font-size: 0.84rem !important;
         font-weight: 500 !important;
         white-space: nowrap !important;
         overflow: hidden !important;
@@ -64,40 +68,83 @@ st.markdown("""
         box-shadow: none !important;
         transition: all 0.15s ease-in-out !important;
         text-align: left !important;
+        justify-content: flex-start !important;
     }
+    section[data-testid="stSidebar"] button:hover,
+    section[data-testid="stSidebar"] [data-testid*="Button"]:hover,
     section[data-testid="stSidebar"] div.stButton > button:hover {
         background-color: #334155 !important;
+        background: #334155 !important;
         color: #ffffff !important;
         border-color: #64748b !important;
     }
 
-    /* Small Pin/Delete Icon Buttons in Sidebar Columns */
-    section[data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(2) div.stButton > button,
-    section[data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(3) div.stButton > button {
-        padding: 0.35rem 0.1rem !important;
-        font-size: 0.8rem !important;
+    /* Popover Trigger Three-Dots (⋯) Button in Sidebar */
+    section[data-testid="stSidebar"] div[data-testid="stPopover"] > button,
+    section[data-testid="stSidebar"] div[data-testid="stPopover"] button {
         background-color: #1e293b !important;
+        background: #1e293b !important;
         border: 1px solid #334155 !important;
+        border-radius: 8px !important;
         color: #94a3b8 !important;
+        padding: 0.35rem 0.25rem !important;
+        font-size: 1.1rem !important;
+        font-weight: bold !important;
+        line-height: 1 !important;
         text-align: center !important;
+        justify-content: center !important;
     }
-    section[data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(2) div.stButton > button:hover,
-    section[data-testid="stSidebar"] div[data-testid="column"]:nth-of-type(3) div.stButton > button:hover {
+    section[data-testid="stSidebar"] div[data-testid="stPopover"] > button:hover,
+    section[data-testid="stSidebar"] div[data-testid="stPopover"] button:hover {
         background-color: #334155 !important;
+        background: #334155 !important;
         color: #ffffff !important;
         border-color: #475569 !important;
     }
 
+    /* Floating Popover Menu Dropdown Box */
+    div[data-testid="stPopoverBody"] {
+        background-color: #0f172a !important;
+        background: #0f172a !important;
+        border: 1px solid #334155 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4) !important;
+        padding: 0.5rem !important;
+        min-width: 170px !important;
+    }
+    div[data-testid="stPopoverBody"] button {
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+        color: #f1f5f9 !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        padding: 0.45rem 0.65rem !important;
+        font-size: 0.84rem !important;
+        border-radius: 6px !important;
+        width: 100% !important;
+    }
+    div[data-testid="stPopoverBody"] button:hover {
+        background-color: #1e293b !important;
+        background: #1e293b !important;
+        color: #38bdf8 !important;
+    }
+
     /* New Chat Primary Button */
+    section[data-testid="stSidebar"] button[kind="primary"],
     section[data-testid="stSidebar"] div.stButton > button[kind="primary"] {
         background-color: #2563eb !important;
+        background: #2563eb !important;
         color: #ffffff !important;
         border: 1px solid #3b82f6 !important;
         font-weight: 700 !important;
         text-align: center !important;
+        justify-content: center !important;
     }
+    section[data-testid="stSidebar"] button[kind="primary"]:hover,
     section[data-testid="stSidebar"] div.stButton > button[kind="primary"]:hover {
         background-color: #1d4ed8 !important;
+        background: #1d4ed8 !important;
     }
     
     .sidebar-brand {
@@ -447,6 +494,12 @@ if "chat_history" not in st.session_state:
 
 if "nav_choice" not in st.session_state:
     st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+
+if "renaming_sid" not in st.session_state:
+    st.session_state.renaming_sid = None
+
+if "trigger_print_sid" not in st.session_state:
+    st.session_state.trigger_print_sid = None
 
 def google_auth_configured():
     try:
@@ -1016,36 +1069,65 @@ sidebar_key = st.sidebar.text_input(
 if sidebar_key != st.session_state.custom_api_key:
     st.session_state.custom_api_key = sidebar_key.strip()
 
+# Rename Chat Dialog Box (if active)
+if st.session_state.get("renaming_sid") and st.session_state.renaming_sid in st.session_state.sessions:
+    r_sid = st.session_state.renaming_sid
+    st.sidebar.markdown('<div class="sidebar-section-title">✏️ Rename Chat</div>', unsafe_allow_html=True)
+    with st.sidebar.form("rename_chat_box"):
+        curr_t = st.session_state.sessions[r_sid]["title"]
+        ren_val = st.text_input("Title:", value=curr_t)
+        ren_c1, ren_c2 = st.columns(2)
+        with ren_c1:
+            if st.form_submit_button("Save", type="primary"):
+                if ren_val.strip():
+                    st.session_state.sessions[r_sid]["title"] = ren_val.strip()
+                st.session_state.renaming_sid = None
+                st.rerun()
+        with ren_c2:
+            if st.form_submit_button("Cancel"):
+                st.session_state.renaming_sid = None
+                st.rerun()
+
 # PINNED CHATS SECTION (ChatGPT / Gemini AI Pinned Chats)
 st.sidebar.markdown('<div class="sidebar-section-title">📌 Pinned Chats</div>', unsafe_allow_html=True)
 pinned_sessions = [(sid, s) for sid, s in st.session_state.sessions.items() if s.get("pinned", False)]
 
 if not pinned_sessions:
-    st.sidebar.markdown("<div style='font-size: 0.76rem; color: #64748b; font-style: italic; margin-bottom: 8px;'>No pinned chats yet. Click 📌 on any chat below to pin it!</div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='font-size: 0.76rem; color: #64748b; font-style: italic; margin-bottom: 8px;'>No pinned chats. Click ⋯ on any chat to pin!</div>", unsafe_allow_html=True)
 else:
     for sid, sdata in pinned_sessions:
         s_title = sdata.get("title", "Untitled Chat")
         is_active = (sid == st.session_state.get("current_session_id"))
         
-        p_col1, p_col2, p_col3 = st.sidebar.columns([3.8, 1.1, 1.1])
+        p_col1, p_col2 = st.sidebar.columns([4.8, 1.2])
         with p_col1:
-            label = f"📌 {s_title[:13]}" if not is_active else f"🟢 {s_title[:13]}"
+            label = s_title if not is_active else f"🟢 {s_title}"
             if st.button(label, key=f"pin_open_{sid}", width="stretch", help=f"Open: {s_title}"):
                 st.session_state.current_session_id = sid
                 st.session_state.chat_history = list(sdata.get("history", []))
                 st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
                 st.rerun()
         with p_col2:
-            if st.button("✕", key=f"unpin_{sid}", help=f"Unpin '{s_title}' (Move to Normal Chats)"):
-                sdata["pinned"] = False
-                st.rerun()
-        with p_col3:
-            if st.button("🗑️", key=f"del_pin_{sid}", help=f"Delete '{s_title}'"):
-                del st.session_state.sessions[sid]
-                if st.session_state.current_session_id == sid:
-                    st.session_state.chat_history = []
-                    st.session_state.current_session_id = f"sess_{int(time.time())}"
-                st.rerun()
+            with st.popover("⋯", help="Options"):
+                st.markdown(f"<div style='font-size: 0.8rem; font-weight: 700; color: #94a3b8; margin-bottom: 6px;'>{html.escape(s_title[:22])}</div>", unsafe_allow_html=True)
+                if st.button("📍 Unpin Chat", key=f"pop_unpin_{sid}", width="stretch"):
+                    sdata["pinned"] = False
+                    st.rerun()
+                if st.button("✏️ Rename", key=f"pop_ren_p_{sid}", width="stretch"):
+                    st.session_state.renaming_sid = sid
+                    st.rerun()
+                if st.button("🖨️ Print Chat", key=f"pop_prn_p_{sid}", width="stretch"):
+                    st.session_state.current_session_id = sid
+                    st.session_state.chat_history = list(sdata.get("history", []))
+                    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                    st.session_state.trigger_print_sid = sid
+                    st.rerun()
+                if st.button("🗑️ Delete", key=f"pop_del_p_{sid}", width="stretch"):
+                    del st.session_state.sessions[sid]
+                    if st.session_state.current_session_id == sid:
+                        st.session_state.chat_history = []
+                        st.session_state.current_session_id = f"sess_{int(time.time())}"
+                    st.rerun()
 
 # RECENT CHATS SECTION (NORMAL CHATS)
 st.sidebar.markdown('<div class="sidebar-section-title">🕒 Recent Activity (Normal Chats)</div>', unsafe_allow_html=True)
@@ -1059,25 +1141,35 @@ else:
         s_time = sdata.get("time", "Recent")
         is_active = (sid == st.session_state.get("current_session_id"))
         
-        r_col1, r_col2, r_col3 = st.sidebar.columns([3.8, 1.1, 1.1])
+        r_col1, r_col2 = st.sidebar.columns([4.8, 1.2])
         with r_col1:
-            label = f"💬 {s_title[:13]}" if not is_active else f"🟢 {s_title[:13]}"
+            label = s_title if not is_active else f"🟢 {s_title}"
             if st.button(label, key=f"rec_open_{sid}", width="stretch", help=f"Open: {s_title} ({s_time})"):
                 st.session_state.current_session_id = sid
                 st.session_state.chat_history = list(sdata.get("history", []))
                 st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
                 st.rerun()
         with r_col2:
-            if st.button("📌", key=f"pin_act_{sid}", help=f"Pin '{s_title}' to Top"):
-                sdata["pinned"] = True
-                st.rerun()
-        with r_col3:
-            if st.button("🗑️", key=f"del_rec_{sid}", help=f"Delete '{s_title}'"):
-                del st.session_state.sessions[sid]
-                if st.session_state.current_session_id == sid:
-                    st.session_state.chat_history = []
-                    st.session_state.current_session_id = f"sess_{int(time.time())}"
-                st.rerun()
+            with st.popover("⋯", help="Options"):
+                st.markdown(f"<div style='font-size: 0.8rem; font-weight: 700; color: #94a3b8; margin-bottom: 6px;'>{html.escape(s_title[:22])}</div>", unsafe_allow_html=True)
+                if st.button("📌 Pin Chat", key=f"pop_pin_{sid}", width="stretch"):
+                    sdata["pinned"] = True
+                    st.rerun()
+                if st.button("✏️ Rename", key=f"pop_ren_r_{sid}", width="stretch"):
+                    st.session_state.renaming_sid = sid
+                    st.rerun()
+                if st.button("🖨️ Print Chat", key=f"pop_prn_r_{sid}", width="stretch"):
+                    st.session_state.current_session_id = sid
+                    st.session_state.chat_history = list(sdata.get("history", []))
+                    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                    st.session_state.trigger_print_sid = sid
+                    st.rerun()
+                if st.button("🗑️ Delete", key=f"pop_del_r_{sid}", width="stretch"):
+                    del st.session_state.sessions[sid]
+                    if st.session_state.current_session_id == sid:
+                        st.session_state.chat_history = []
+                        st.session_state.current_session_id = f"sess_{int(time.time())}"
+                    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -1114,15 +1206,32 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     with head_col2:
         cur_id = st.session_state.get("current_session_id", "sess_snake")
         is_pinned = st.session_state.sessions.get(cur_id, {}).get("pinned", False)
-        if is_pinned:
-            if st.button("📍 Pinned (Click to Unpin)", key="top_unpin_btn", width="stretch", help="Click to unpin this conversation"):
-                if cur_id in st.session_state.sessions:
-                    st.session_state.sessions[cur_id]["pinned"] = False
+        
+        with st.popover("⚙️ Options", width="stretch"):
+            if is_pinned:
+                if st.button("📍 Unpin Chat", key="top_unpin_btn", width="stretch"):
+                    if cur_id in st.session_state.sessions:
+                        st.session_state.sessions[cur_id]["pinned"] = False
+                    st.rerun()
+            else:
+                if st.button("📌 Pin Chat", key="top_pin_btn", width="stretch"):
+                    if cur_id in st.session_state.sessions:
+                        st.session_state.sessions[cur_id]["pinned"] = True
+                    st.rerun()
+            
+            if st.button("🖨️ Print Chat", key="top_print_btn", width="stretch"):
+                st.session_state.trigger_print_sid = cur_id
                 st.rerun()
-        else:
-            if st.button("📌 Pin Chat", key="top_pin_btn", width="stretch", help="Pin this conversation to top"):
+
+            if st.button("✏️ Rename Chat", key="top_rename_btn", width="stretch"):
+                st.session_state.renaming_sid = cur_id
+                st.rerun()
+
+            if st.button("🗑️ Delete Chat", key="top_del_btn", width="stretch"):
                 if cur_id in st.session_state.sessions:
-                    st.session_state.sessions[cur_id]["pinned"] = True
+                    del st.session_state.sessions[cur_id]
+                st.session_state.chat_history = []
+                st.session_state.current_session_id = f"sess_{int(time.time())}"
                 st.rerun()
 
     with head_col3:
@@ -1131,6 +1240,18 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
             ["OpenAI (GPT-4o + DALL-E 3)", "Ollama (llama3.2)", "Semantic Guardrail"],
             label_visibility="collapsed"
         )
+
+    # Print Dialog Trigger Handler
+    if st.session_state.get("trigger_print_sid"):
+        st.session_state.trigger_print_sid = None
+        st.markdown('''
+        <script>
+        setTimeout(function() {
+            window.print();
+        }, 400);
+        </script>
+        ''', unsafe_allow_html=True)
+        st.info("🖨️ Opening print dialog. You can print the conversation or save it as PDF.")
 
     api_key = st.session_state.get("custom_api_key", "") or st.secrets.get("OPENAI_API_KEY", "")
 
