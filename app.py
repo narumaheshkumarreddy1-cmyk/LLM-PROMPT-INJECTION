@@ -1057,18 +1057,6 @@ nav_choice = st.sidebar.radio(
 )
 st.session_state.nav_choice = nav_choice
 
-# API Key Sidebar Quick Configuration
-st.sidebar.markdown('<div class="sidebar-section-title">🔑 OpenAI API Key</div>', unsafe_allow_html=True)
-sidebar_key = st.sidebar.text_input(
-    "API Key",
-    value=st.session_state.custom_api_key,
-    type="password",
-    placeholder="sk-...",
-    label_visibility="collapsed"
-)
-if sidebar_key != st.session_state.custom_api_key:
-    st.session_state.custom_api_key = sidebar_key.strip()
-
 # Rename Chat Dialog Box (if active)
 if st.session_state.get("renaming_sid") and st.session_state.renaming_sid in st.session_state.sessions:
     r_sid = st.session_state.renaming_sid
@@ -1171,6 +1159,29 @@ else:
                         st.session_state.current_session_id = f"sess_{int(time.time())}"
                     st.rerun()
 
+# Core Technologies Showcase in Sidebar
+st.sidebar.markdown('<div class="sidebar-section-title">⚡ Core Technologies</div>', unsafe_allow_html=True)
+st.sidebar.markdown('''
+<div style="padding: 8px 10px; background: #1e293b; border-radius: 8px; border: 1px solid #334155; font-size: 0.74rem; line-height: 1.6; margin-bottom: 8px;">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+        <span style="color: #cbd5e1; font-weight: 600;">🦙 Ollama</span>
+        <span style="color: #38bdf8; font-weight: 500;">llama3.2 Local</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+        <span style="color: #cbd5e1; font-weight: 600;">📊 Scikit-Learn</span>
+        <span style="color: #4ade80; font-weight: 500;">TF-IDF Vectors</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+        <span style="color: #cbd5e1; font-weight: 600;">🛡️ Dual-Detector</span>
+        <span style="color: #a78bfa; font-weight: 500;">Regex + Intent</span>
+    </div>
+    <div style="display: flex; justify-content: space-between;">
+        <span style="color: #cbd5e1; font-weight: 600;">📄 Multimodal</span>
+        <span style="color: #fbbf24; font-weight: 500;">PDF / Code / Img</span>
+    </div>
+</div>
+''', unsafe_allow_html=True)
+
 st.sidebar.markdown("---")
 
 display_user = html.escape(st.session_state.auth_user)
@@ -1237,7 +1248,8 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     with head_col3:
         engine_choice = st.selectbox(
             "Select Model:",
-            ["OpenAI (GPT-4o + DALL-E 3)", "Ollama (llama3.2)", "Semantic Guardrail"],
+            ["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"],
+            index=0,
             label_visibility="collapsed"
         )
 
@@ -1255,7 +1267,40 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
 
     api_key = st.session_state.get("custom_api_key", "") or st.secrets.get("OPENAI_API_KEY", "")
 
-    st.markdown("<hr style='margin: 12px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
+    # Technology Stack & Dual-Detector Architecture Showcase Expander
+    with st.expander("⚡ Technology Stack & Dual-Detector Architecture", expanded=False):
+        t1, t2, t3, t4 = st.columns(4)
+        with t1:
+            st.markdown("""
+            **🦙 Local AI Model**  
+            `Ollama llama3.2`  
+            On-device private inference & AI security judgment without cloud data leakage.
+            """)
+        with t2:
+            st.markdown("""
+            **📊 Vector Guardrail**  
+            `Scikit-Learn TF-IDF`  
+            Char N-grams (2,4) & Cosine Similarity across 21+ cyber threat benchmark vectors.
+            """)
+        with t3:
+            st.markdown("""
+            **🛡️ Heuristic Scanner**  
+            `Regex Rule Engine`  
+            Instant pattern detection for DAN, Jailbreaks, Instruction Overrides & Leaks.
+            """)
+        with t4:
+            st.markdown("""
+            **📄 Multimodal Parser**  
+            `PyMuPDF & PIL`  
+            Deep inspection of PDF, Python, JSON, CSV, TXT, PNG & JPG uploaded payloads.
+            """)
+        st.markdown("""
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; color: #475569; margin-top: 4px;">
+            <b>Dual-Detector Pipeline Flow:</b> User Input / Multimodal File ➔ <b>Detector 1</b> (Heuristic Regex Filter) ➔ <b>Detector 2</b> (Semantic Vector Intent Classification) ➔ <b>Risk Aggregator Engine</b> ➔ <b>Model Execution</b> (Ollama Local / Semantic Guardrail / OpenAI Cloud).
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<hr style='margin: 8px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
     # Main Canvas: Center Execution Column (65%) & Right Analysis Panel (35%)
     center_canvas, right_panel = st.columns([1.8, 1])
@@ -1659,7 +1704,12 @@ elif nav_choice == "📁 Security Projects & Rules":
     ''', unsafe_allow_html=True)
     st.markdown("<hr style='margin: 12px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
-    tab_rules, tab_engines, tab_policy = st.tabs(["⚡ Custom Blacklist & Regex Rules", "🛡️ Active Protection Engines", "📜 System Security Policy"])
+    tab_rules, tab_engines, tab_tech, tab_policy = st.tabs([
+        "⚡ Custom Blacklist & Regex Rules", 
+        "🛡️ Active Protection Engines", 
+        "💻 Core Technology Stack", 
+        "📜 System Security Policy"
+    ])
 
     with tab_rules:
         st.subheader("Custom Injection Signatures & Regex Rules")
@@ -1717,6 +1767,47 @@ elif nav_choice == "📁 Security Projects & Rules":
             else:
                 st.info("STATUS: STANDBY (Offline Fallback Engine)")
             st.write("- **Method:** LLM Zero-Shot Safety Classification")
+
+    with tab_tech:
+        st.subheader("💻 Core Technology Stack & Architecture")
+        st.write("This security framework integrates local, semantic, machine learning, and heuristic technologies for complete LLM protection:")
+        
+        tc1, tc2 = st.columns(2)
+        with tc1:
+            st.markdown("""
+            #### 🦙 1. Local AI Model (Ollama Llama 3.2)
+            - **Engine:** `ollama.chat(model='llama3.2')`
+            - **Privacy:** 100% on-device local execution; zero prompt data sent to third-party cloud servers.
+            - **Role:** Autonomous local AI judge, intent reasoning, and offline conversational response generation.
+            
+            #### 📊 2. Vector Machine Learning (Scikit-Learn)
+            - **Algorithm:** `TfidfVectorizer(ngram_range=(2, 4), analyzer="char_wb")`
+            - **Metric:** `cosine_similarity(input_vec, corpus_matrix)`
+            - **Strength:** Character n-gram tokenization neutralizes typo-squatting, leetspeak, and adversarial evasion attacks in under 5ms.
+            
+            #### 🛡️ 3. Layer 1: Heuristic Regex Firewall
+            - **Engine:** High-speed regular expression matching with compiled patterns.
+            - **Protection:** Intercepts DAN personas, Direct Overrides, developer mode exploits, and system prompt extraction attacks.
+            """)
+        with tc2:
+            st.markdown("""
+            #### 📄 4. Multimodal Payload Inspection
+            - **Libraries:** `PyMuPDF (fitz)` & `Pillow (PIL)`
+            - **File Types:** PDF documents, Python code scripts, CSV, JSON, TXT, and image analysis.
+            - **Function:** Automatically extracts hidden payloads and scans embedded text before LLM forwarding.
+            
+            #### ⚡ 5. Enterprise Web Framework (Streamlit)
+            - **Frontend:** Streamlit with reactive session states, dark-theme sidebars, and CSS styling.
+            - **Features:** Multi-turn session histories, pin/unpin conversation management, and CSV audit downloads.
+            
+            #### ☁️ 6. Cloud Fallback (OpenAI API)
+            - **Models:** GPT-4o-mini & DALL-E 3
+            - **Role:** Optional high-reasoning cloud fallback engine, configurable inside Engine Settings.
+            """)
+
+        st.markdown("---")
+        st.markdown("#### 🔄 Dual-Detector Security Gateway Architecture")
+        st.info("**Pipeline Execution:** `User Prompt / Upload` ➔ `[Detector 1] Heuristic Regex Scan` ➔ `[Detector 2] Scikit-Learn TF-IDF Semantic Guardrail` ➔ `[Risk Aggregator]` ➔ `Decision: ALLOW (200) / FLAG (200) / BLOCK (403)` ➔ `LLM Response (Ollama / Guardrail / Cloud)`")
 
     with tab_policy:
         st.subheader("System Security Guardrail Instructions")
