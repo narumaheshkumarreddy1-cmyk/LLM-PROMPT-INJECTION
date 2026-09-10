@@ -374,6 +374,18 @@ if "custom_rules" not in st.session_state:
     st.session_state.custom_rules = [
         (r"(?i)\b(system\s+override)\b", "Custom Override Rule", 0.90)
     ]
+if "selected_ai_engine" not in st.session_state:
+    st.session_state.selected_ai_engine = "Ollama (llama3.2 Local)"
+if "selected_image_engine" not in st.session_state:
+    st.session_state.selected_image_engine = "Pollinations AI (Free & Instant)"
+if "enable_detector_1" not in st.session_state:
+    st.session_state.enable_detector_1 = True
+if "enable_detector_2" not in st.session_state:
+    st.session_state.enable_detector_2 = True
+if "enable_detector_3" not in st.session_state:
+    st.session_state.enable_detector_3 = True
+if "enable_multimodal" not in st.session_state:
+    st.session_state.enable_multimodal = True
 
 # Realistic Multi-Session Chat Storage (ChatGPT / Gemini AI Model)
 if "sessions" not in st.session_state:
@@ -789,8 +801,31 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
 # 5. RISK AGGREGATOR ENGINE
 # ---------------------------------------------------------
 def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
-    inj_res = scan_prompt_injection(user_prompt)
-    safety_res = scan_semantic_safety(user_prompt, engine_choice, api_key)
+    enable_det1 = st.session_state.get("enable_detector_1", True)
+    enable_det2 = st.session_state.get("enable_detector_2", True)
+    enable_det3 = st.session_state.get("enable_detector_3", True)
+
+    if enable_det1:
+        inj_res = scan_prompt_injection(user_prompt)
+    else:
+        inj_res = {
+            "attack_detected": False,
+            "attack_type": "None",
+            "risk_score": 0.0,
+            "reason": "Detector 1 (Heuristic Regex) disabled by user preference."
+        }
+
+    if enable_det2 or enable_det3:
+        safety_res = scan_semantic_safety(user_prompt, engine_choice, api_key)
+    else:
+        safety_res = {
+            "label": "SAFE",
+            "category": "BENIGN",
+            "intent": "General Query",
+            "risk_score": 0.0,
+            "confidence": 1.0,
+            "reason": "Detector 2 & 3 (Semantic & AI Judge) disabled by user preference."
+        }
     
     inj_score = inj_res["risk_score"]
     harm_score = safety_res["risk_score"]
@@ -839,10 +874,12 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
 # ---------------------------------------------------------
 # 6. DYNAMIC REAL AI IMAGE GENERATOR ENGINE
 # ---------------------------------------------------------
-def generate_ai_image(prompt_text, api_key):
-    """Generates real AI images matching ANY prompt (dog, snake, car, cyber, etc.)."""
+def generate_ai_image(prompt_text, api_key=None):
+    """Generates real AI images matching ANY prompt (bus, dog, snake, car, cyber, etc.)."""
+    pref_engine = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
     effective_key = api_key or st.session_state.get("custom_api_key", "")
-    if effective_key:
+    
+    if ("OpenAI" in pref_engine or "DALL-E" in pref_engine) and effective_key:
         try:
             client = openai.OpenAI(api_key=effective_key)
             response = client.images.generate(
@@ -856,10 +893,13 @@ def generate_ai_image(prompt_text, api_key):
         except Exception:
             pass
 
-    clean_p = prompt_text.lower()
-    for phrase in ["generate an image of", "generate image of", "create an image of", "create a picture of", "a photo of", "a picture of", "draw a", "draw an", "i need an image of"]:
-        clean_p = clean_p.replace(phrase, "")
-    clean_p = clean_p.strip()
+    clean_p = prompt_text.lower().strip()
+    # Remove standard command prefixes
+    clean_p = re.sub(r"(?i)\b(i\s+need\s+(an?|some)?|give\s+me\s+(an?|some)?|show\s+me\s+(an?|some)?|generate\s+(an?|some)?|create\s+(an?|some)?|draw\s+(an?|some)?|make\s+(an?|some)?)\b", "", clean_p)
+    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\s+of\b", "", clean_p)
+    clean_p = re.sub(r"(?i)\b(image|photo|picture|pic|pics|wallpaper|portrait|illustration|drawing|render)\b", "", clean_p)
+    clean_p = re.sub(r"[^\w\s-]", "", clean_p)
+    clean_p = re.sub(r"\s+", " ", clean_p).strip()
     subject = clean_p if clean_p else prompt_text.strip()
     encoded_prompt = urllib.parse.quote(subject)
     return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true"
@@ -867,25 +907,31 @@ def generate_ai_image(prompt_text, api_key):
 def is_image_request_prompt(prompt_text):
     p_lower = prompt_text.lower().strip()
     
-    # Direct explicit phrases
-    explicit_phrases = [
-        "generate an image", "create an image", "draw an image", "draw a", "picture of",
-        "photo of", "image of", "wallpaper of", "portrait of", "show me an image",
-        "generate a photo", "generate a picture", "create a picture", "create a photo"
-    ]
-    if any(phrase in p_lower for phrase in explicit_phrases):
+    # Do not treat pure educational/coding explanations as image requests
+    if any(p_lower.startswith(q) for q in ["how to", "what is", "why is", "explain", "tutorial", "code to", "how do"]):
+        if not any(req in p_lower for req in ["generate", "draw", "create", "render", "i need an image", "i need a photo", "i need a picture"]):
+            return False
+
+    # Image indicator tokens
+    img_tokens = ["image", "photo", "picture", "pic", "pics", "wallpaper", "portrait", "illustration", "drawing", "render", "sketch", "artwork"]
+    action_tokens = ["generate", "create", "draw", "show", "give", "need", "want", "display", "paint", "make", "render", "produce"]
+
+    # 1. Any prompt containing an image token
+    for img in img_tokens:
+        if img in p_lower:
+            # Check if any action/need keyword is present (e.g. "i need a bus image")
+            if any(act in p_lower for act in action_tokens):
+                return True
+            # Or if it's formatted as "<subject> image" / "image of <subject>"
+            if "of" in p_lower or "for" in p_lower:
+                return True
+            if re.search(rf"\b{img}\b", p_lower):
+                return True
+
+    # 2. Starting with visual creation verbs: "draw a ...", "paint a ...", "sketch a ..."
+    if re.search(r"^\b(draw|paint|sketch|render|illustrate)\b", p_lower):
         return True
-        
-    # Standard image request keywords
-    visual_keywords = ["wallpaper", "portrait", "illustration", "photograph"]
-    if any(kw in p_lower for kw in visual_keywords):
-        return True
-        
-    # Short subject queries specifically asking for images
-    subject_words = ["snake", "dog", "cat", "car", "lion", "tiger", "bird", "forest"]
-    if any(s in p_lower for s in subject_words) and any(w in p_lower for w in ["image", "photo", "picture", "draw"]):
-        return True
-        
+
     return False
 
 # ---------------------------------------------------------
@@ -909,10 +955,11 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     # Image Request Check
     if is_image_request_prompt(user_input):
         img_url = generate_ai_image(user_input, api_key)
+        img_engine_label = "OpenAI DALL-E 3" if ("OpenAI" in st.session_state.get("selected_image_engine", "") and (api_key or st.session_state.get("custom_api_key"))) else "Pollinations AI Neural Engine"
         return {
             "type": "image",
             "url": img_url,
-            "caption": "AI Image generated using DALL-E 3" if (api_key or st.session_state.get("custom_api_key")) else "Real AI Image generated (Pollinations Engine)",
+            "caption": f"Generated via {img_engine_label}",
             "content": f"Here is the generated image for: *\"{user_input}\"*"
         }
 
@@ -1023,9 +1070,9 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         text_out = (f"### 💡 AI Assistant Response: {topic}\n\n"
                     f"**Prompt Evaluation:** Passed security filters with status `ALLOW (200 OK)`.\n\n"
                     f"Thank you for your query regarding **{topic}**.\n\n"
-                    f"- **Security Verification:** Evaluated by LLM Security Gateway.\n"
-                    f"- **Status:** Verified clean (0.00 Risk Score).\n\n"
-                    f"*Tip: Enter your OpenAI API key in the sidebar or Engine Settings to enable full GPT-4o conversational model responses.*")
+                    f"- **Security Verification:** Evaluated and verified safe by the LLM Security Gateway.\n"
+                    f"- **Risk Score:** `0.00 / 1.00 (Safe to Forward)`.\n\n"
+                    f"Your request has been verified clean by your active security pipeline.")
         return {"type": "text", "content": text_out}
 
 # ---------------------------------------------------------
@@ -1204,7 +1251,7 @@ if st.sidebar.button("Sign Out", type="secondary", width="stretch"):
 
 # VIEW 1: MULTIMODAL & IMAGE GUARD
 if nav_choice == "🖼️ Multimodal & Image Guard":
-    head_col1, head_col2, head_col3 = st.columns([2.2, 0.9, 1])
+    head_col1, head_col2, head_col3, head_col4 = st.columns([1.8, 0.7, 1.1, 1.4])
 
     with head_col1:
         st.markdown('''
@@ -1249,9 +1296,43 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
         engine_choice = st.selectbox(
             "Select Model:",
             ["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"],
-            index=0,
+            index=["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"].index(st.session_state.get("selected_ai_engine", "Ollama (llama3.2 Local)")) if st.session_state.get("selected_ai_engine") in ["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"] else 0,
             label_visibility="collapsed"
         )
+        st.session_state.selected_ai_engine = engine_choice
+
+    with head_col4:
+        with st.popover("🎛️ Technology Wish", width="stretch"):
+            st.markdown("#### 🎛️ Technology Options")
+            st.caption("Select technologies according to your wish:")
+            
+            st.markdown("**🖼️ Image Generation Technology**")
+            curr_img = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
+            img_opts = ["Pollinations AI (Free & Instant)", "OpenAI DALL-E 3 (Cloud HD)"]
+            img_idx = img_opts.index(curr_img) if curr_img in img_opts else 0
+            new_img = st.radio("Image Engine", img_opts, index=img_idx, key="pref_img_radio")
+            if new_img != curr_img:
+                st.session_state.selected_image_engine = new_img
+                st.rerun()
+
+            st.markdown("---")
+            st.markdown("**🛡️ Defense Detectors (User Wish)**")
+            c_d1 = st.checkbox("Layer 1: Heuristic Regex Signatures", value=st.session_state.get("enable_detector_1", True), key="u_chk_d1")
+            c_d2 = st.checkbox("Layer 2: Scikit-Learn TF-IDF Vectors", value=st.session_state.get("enable_detector_2", True), key="u_chk_d2")
+            c_d3 = st.checkbox("Layer 3: AI Security Judge", value=st.session_state.get("enable_detector_3", True), key="u_chk_d3")
+            c_d4 = st.checkbox("Layer 4: Multimodal File Scanner", value=st.session_state.get("enable_multimodal", True), key="u_chk_d4")
+
+            if (c_d1 != st.session_state.get("enable_detector_1") or
+                c_d2 != st.session_state.get("enable_detector_2") or
+                c_d3 != st.session_state.get("enable_detector_3") or
+                c_d4 != st.session_state.get("enable_multimodal")):
+                st.session_state.enable_detector_1 = c_d1
+                st.session_state.enable_detector_2 = c_d2
+                st.session_state.enable_detector_3 = c_d3
+                st.session_state.enable_multimodal = c_d4
+                st.rerun()
+
+            st.markdown(f"<div style='font-size: 0.75rem; color: #10b981; font-weight: 600; margin-top: 4px;'>✔ Selected: {new_img.split(' ')[0]} + {sum([c_d1, c_d2, c_d3, c_d4])}/4 Detectors Active</div>", unsafe_allow_html=True)
 
     # Print Dialog Trigger Handler
     if st.session_state.get("trigger_print_sid"):
@@ -1268,31 +1349,36 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     api_key = st.session_state.get("custom_api_key", "") or st.secrets.get("OPENAI_API_KEY", "")
 
     # Technology Stack & Dual-Detector Architecture Showcase Expander
-    with st.expander("⚡ Technology Stack & Dual-Detector Architecture", expanded=False):
+    with st.expander("⚡ Technology Stack & User-Selected Pipeline Status", expanded=False):
         t1, t2, t3, t4 = st.columns(4)
+        det1_status = "🟢 ACTIVE" if st.session_state.get("enable_detector_1", True) else "⚪ BYPASSED"
+        det2_status = "🟢 ACTIVE" if st.session_state.get("enable_detector_2", True) else "⚪ BYPASSED"
+        det3_status = "🟢 ACTIVE" if st.session_state.get("enable_detector_3", True) else "⚪ BYPASSED"
+        det4_status = "🟢 ACTIVE" if st.session_state.get("enable_multimodal", True) else "⚪ BYPASSED"
+
         with t1:
-            st.markdown("""
-            **🦙 Local AI Model**  
-            `Ollama llama3.2`  
-            On-device private inference & AI security judgment without cloud data leakage.
+            st.markdown(f"""
+            **🦙 AI Engine Choice**  
+            `{st.session_state.get('selected_ai_engine', 'Ollama llama3.2')}`  
+            Primary reasoning and conversational generator.
             """)
         with t2:
-            st.markdown("""
-            **📊 Vector Guardrail**  
-            `Scikit-Learn TF-IDF`  
-            Char N-grams (2,4) & Cosine Similarity across 21+ cyber threat benchmark vectors.
+            st.markdown(f"""
+            **🖼️ Image Engine**  
+            `{st.session_state.get('selected_image_engine', 'Pollinations AI')}`  
+            Real AI image generation matching ANY prompt.
             """)
         with t3:
-            st.markdown("""
-            **🛡️ Heuristic Scanner**  
-            `Regex Rule Engine`  
-            Instant pattern detection for DAN, Jailbreaks, Instruction Overrides & Leaks.
+            st.markdown(f"""
+            **🛡️ Detection Layers**  
+            - Detector 1 (Regex): `{det1_status}`  
+            - Detector 2 (TF-IDF): `{det2_status}`
             """)
         with t4:
-            st.markdown("""
-            **📄 Multimodal Parser**  
-            `PyMuPDF & PIL`  
-            Deep inspection of PDF, Python, JSON, CSV, TXT, PNG & JPG uploaded payloads.
+            st.markdown(f"""
+            **⚖️ Evaluation & Scanner**  
+            - Detector 3 (AI Judge): `{det3_status}`  
+            - Multimodal Scanner: `{det4_status}`
             """)
         st.markdown("""
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; color: #475569; margin-top: 4px;">
@@ -1483,7 +1569,8 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
 
     with dock_col2:
         if st.button("🖼️ Generate Image", width="stretch"):
-            img_prompt = user_prompt_input.strip() if ('user_prompt_input' in locals() and user_prompt_input and user_prompt_input.strip()) else "Generate an image of a snake in a forest"
+            raw_p = user_prompt_input.strip() if ('user_prompt_input' in locals() and user_prompt_input and user_prompt_input.strip()) else "bus in modern city"
+            img_prompt = raw_p if is_image_request_prompt(raw_p) else f"Generate an image of {raw_p}"
             st.session_state.chat_history.append({"role": "user", "content": img_prompt})
             res = aggregate_security_pipeline(img_prompt, engine_choice, api_key)
             ans = generate_chatbot_answer(img_prompt, st.session_state.chat_history, engine_choice, api_key, res)
@@ -1851,9 +1938,42 @@ elif nav_choice == "⚙️ Engine Settings":
             st.success("Updated risk threshold settings!")
 
     with c2:
+        st.subheader("🎛️ Technology Stack Preferences (User's Wish)")
+        st.write("Customize which AI engines and defense layers run across your sessions:")
+        
+        pref_ai = st.selectbox(
+            "Default AI Engine:",
+            ["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"],
+            index=["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"].index(st.session_state.get("selected_ai_engine", "Ollama (llama3.2 Local)")) if st.session_state.get("selected_ai_engine") in ["Ollama (llama3.2 Local)", "Fast Semantic Guardrail Engine", "OpenAI (GPT-4o + DALL-E 3)"] else 0,
+            key="set_pref_ai"
+        )
+        pref_img = st.selectbox(
+            "Default Image Generator:",
+            ["Pollinations AI (Free & Instant)", "OpenAI DALL-E 3 (Cloud HD)"],
+            index=0 if "Pollinations" in st.session_state.get("selected_image_engine", "Pollinations") else 1,
+            key="set_pref_img"
+        )
+        st.session_state.selected_ai_engine = pref_ai
+        st.session_state.selected_image_engine = pref_img
+
+        st.markdown("##### Active Defense Layer Toggles")
+        st.session_state.enable_detector_1 = st.checkbox("Layer 1: Heuristic Regex Signatures", value=st.session_state.get("enable_detector_1", True), key="set_chk_d1")
+        st.session_state.enable_detector_2 = st.checkbox("Layer 2: Scikit-Learn TF-IDF Vectors", value=st.session_state.get("enable_detector_2", True), key="set_chk_d2")
+        st.session_state.enable_detector_3 = st.checkbox("Layer 3: AI Security Judge", value=st.session_state.get("enable_detector_3", True), key="set_chk_d3")
+        st.session_state.enable_multimodal = st.checkbox("Layer 4: Multimodal File Scanner", value=st.session_state.get("enable_multimodal", True), key="set_chk_d4")
+
+        st.markdown("---")
         st.subheader("🩺 Gateway System Diagnostics")
         st.json({
             "authenticated_user": st.session_state.auth_user,
+            "selected_ai_engine": st.session_state.selected_ai_engine,
+            "selected_image_engine": st.session_state.selected_image_engine,
+            "active_detectors": {
+                "detector_1_regex": st.session_state.enable_detector_1,
+                "detector_2_tfidf": st.session_state.enable_detector_2,
+                "detector_3_ai_judge": st.session_state.enable_detector_3,
+                "detector_4_multimodal": st.session_state.enable_multimodal
+            },
             "api_key_configured": bool(st.session_state.custom_api_key or st.secrets.get("OPENAI_API_KEY")),
             "block_threshold": st.session_state.block_threshold,
             "flag_threshold": st.session_state.flag_threshold,
