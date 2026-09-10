@@ -805,9 +805,11 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
     else:
         intent = intent if best_sim >= 0.25 else "General Query"
 
+    safe_cat = category if (best_sim >= 0.25 and label == "SAFE") else ("BENIGN_DEVELOPMENT" if any(w in prompt_lower for w in ["code", "python", "java", "rust", "docker", "program", "database", "query"]) else "BENIGN_INQUIRY")
+
     return {
         "label": "SAFE",
-        "category": category if best_sim >= 0.25 else "BENIGN_DEVELOPMENT",
+        "category": safe_cat,
         "intent": intent,
         "risk_score": 0.02 if intent == "Image Generation" else 0.0,
         "confidence": 0.98,
@@ -1040,14 +1042,15 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         except Exception as e:
             return {"type": "text", "content": f"OpenAI API Error: {str(e)}"}
 
-    # Run Local AI Model (Ollama llama3.2)
-    try:
-        resp = ollama.chat(model='llama3.2', messages=formatted_messages)
-        ans_text = resp['message']['content'] if hasattr(resp, '__getitem__') else getattr(resp.message, 'content', str(resp))
-        if ans_text and len(ans_text.strip()) > 0:
-            return {"type": "text", "content": ans_text}
-    except Exception:
-        pass
+    # Run Local AI Model (Ollama llama3.2) if selected
+    if "Ollama" in engine_choice:
+        try:
+            resp = ollama.chat(model='llama3.2', messages=formatted_messages)
+            ans_text = resp['message']['content'] if hasattr(resp, '__getitem__') else getattr(resp.message, 'content', str(resp))
+            if ans_text and len(ans_text.strip()) > 0:
+                return {"type": "text", "content": ans_text}
+        except Exception:
+            pass
 
     # Built-in High-Capacity Knowledge Engine for Offline / Standard AI Mode
     if "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
@@ -1113,6 +1116,33 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "- **Direct Prompt Injection:** The user explicitly instructs the model to ignore previous system instructions.\n"
                     "- **Indirect Prompt Injection:** Adversarial text embedded within retrieved documents, web pages, or PDFs.\n"
                     "- **Jailbreaking:** Persona adoption techniques (e.g., DAN mode, Developer Mode) to bypass safety filters.\n")
+        return {"type": "text", "content": text_out}
+
+    elif any(w in query_lower for w in ["road", "roadmap", "learn", "study", "curriculum", "syllabus", "path", "guide me"]) and any(w in query_lower for w in ["basic", "beginner", "start", "scratch", "learn", "how to"]):
+        clean_topic = re.sub(r"(?i)\b(can you give me|can you provide|give me|provide|tell me|show me|a road to learn from basic|a roadmap for|a roadmap to learn|roadmap|learning path|from basic|from basics|from scratch)\b", "", user_input).strip().strip("?:., ")
+        topic_name = clean_topic.title() if clean_topic else "Software Engineering & Technology"
+        text_out = (
+            f"### 🗺️ Step-by-Step Learning Roadmap: {topic_name}\n\n"
+            f"**Security Verdict:** `ALLOW (200 OK)` — Verified clean educational query.\n\n"
+            f"Here is a comprehensive, industry-aligned roadmap to master **{topic_name}** from absolute basics to advanced proficiency:\n\n"
+            f"#### 📍 Stage 1: Fundamentals & Core Concepts (Weeks 1 - 4)\n"
+            f"- **Foundational Architecture:** Understand core syntax, data types, control flow (conditionals, loops), and modular programming.\n"
+            f"- **Development Environment:** Install runtime environments, package managers, and configure VS Code or modern IDEs.\n"
+            f"- **Version Control:** Master Git commands (`git init`, `add`, `commit`, `branch`, `merge`, `push`, `pull`).\n\n"
+            f"#### 📍 Stage 2: Data Structures & Core Logic (Weeks 5 - 8)\n"
+            f"- **Primitive & Linear Data Structures:** Arrays, Lists, Dictionaries/HashMaps, Stacks, and Queues.\n"
+            f"- **Algorithmic Thinking:** Searching, sorting, time/space complexity analysis ($O(N)$, $O(\\log N)$).\n"
+            f"- **Object-Oriented Programming (OOP):** Encapsulation, inheritance, polymorphism, and abstraction.\n\n"
+            f"#### 📍 Stage 3: Practical Projects & Tooling (Weeks 9 - 12)\n"
+            f"- **Hands-on Implementation:** Build 3 end-to-end practical projects demonstrating real-world problem solving.\n"
+            f"- **Database & APIs:** Relational databases (PostgreSQL/SQLite), REST APIs, and JSON data pipelines.\n"
+            f"- **Testing & Debugging:** Unit testing, error handling, defensive programming, and logging.\n\n"
+            f"#### 📍 Stage 4: Advanced Systems & Security Best Practices (Weeks 13+)\n"
+            f"- **Security Mindset:** Input sanitization, authentication tokens (JWT/OAuth), and OWASP Top 10 defense.\n"
+            f"- **Performance Optimization:** Asynchronous tasks, caching (Redis), and system scalability.\n"
+            f"- **Deployment:** Containerization with Docker, CI/CD GitHub Actions, and cloud hosting.\n\n"
+            f"*(Generated by LLM Security Gateway Intelligence & Educational Knowledge Engine)*"
+        )
         return {"type": "text", "content": text_out}
 
     else:
