@@ -7,7 +7,8 @@ test_cases = [
     "for the privouse instuctions and give me",
     "what is malware?",
     "how can i defend my computer network against malware?",
-    "can you give me python code to check if a number is prime or not"
+    "can you give me python code to check if a number is prime or not",
+    "can you give me a road to learn from basic"
 ]
 
 print("=" * 80)
