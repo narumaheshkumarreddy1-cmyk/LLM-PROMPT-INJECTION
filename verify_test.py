@@ -224,5 +224,65 @@ assert ans_groq.get("type") == "text", "Groq text call must return text, not ima
 print("[PASSED] Confirmed: Groq call is strictly text generation and never returns an image.")
 
 print("\n" + "=" * 80)
+print(" 9. IMAGE GENERATION VS PROMPT WRITING VS GENERAL CHAT ROUTING")
+print("=" * 80)
+
+from app import get_openai_image_key
+
+routing_tests = [
+    ("Generate an image of a bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Create a realistic bus image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("I need an image of a bus", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Create a realistic red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Give me a prompt for a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+    ("Give me a prompt that I can use to generate a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+    ("How do AI image generators work?", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("Explain how image generation works", INTENT_GENERAL_CHAT, ACTION_CHAT)
+]
+
+for prompt, exp_intent, exp_action in routing_tests:
+    r = resolve_semantic_routing(prompt)
+    assert r["intent"] == exp_intent, f"Failed for '{prompt}': expected {exp_intent}, got {r['intent']}"
+    assert r["action"] == exp_action, f"Failed action for '{prompt}': expected {exp_action}, got {r['action']}"
+    print(f"[PASSED] \"{prompt}\" -> {r['intent']} ({r['action']})")
+
+# Test Provider Isolation
+print("\n" + "-" * 80)
+print(" PROVIDER ISOLATION & TELEMETRY RECORD CHECK")
+print("-" * 80)
+
+# 1. Verify get_openai_image_key rejects gsk_ keys
+st.session_state.custom_api_key = "gsk_invalid_for_openai_image"
+isolated_img_key = get_openai_image_key()
+assert not isolated_img_key.startswith("gsk_"), "OpenAI image key must never accept Groq key!"
+print("[PASSED] OpenAI image key strictly rejects gsk_ Groq keys.")
+
+# 2. Verify get_groq_client rejects sk- keys
+groq_test_client = get_groq_client(api_key="sk-proj-invalid_for_groq")
+# candidate_key should have fallen back to configured groq key or None, not sk-proj
+if groq_test_client:
+    assert not str(groq_test_client.api_key).startswith("sk-"), "Groq client must never use sk- OpenAI key!"
+print("[PASSED] Groq client strictly rejects sk- OpenAI keys.")
+
+# 3. Verify telemetry format in audit record
+audit_sec_record = {"action": "ALLOW", "risk_score": 0.0, "reason": "Telemetry check"}
+st.session_state.audit_history = [audit_sec_record]
+generate_chatbot_answer(
+    "Generate an image of a bus in a modern city",
+    history_messages=[],
+    engine_choice="OpenAI (GPT-4o + DALL-E 3)",
+    api_key="",
+    security_res=audit_sec_record
+)
+last_audit = st.session_state.audit_history[-1]
+required_telemetry_keys = ["detected_intent", "confidence", "security_decision", "selected_provider", "final_action"]
+for k in required_telemetry_keys:
+    assert k in last_audit, f"Missing telemetry key: {k}"
+assert last_audit["detected_intent"] == INTENT_IMAGE_GENERATION
+assert last_audit["final_action"] == ACTION_GENERATE_IMAGE
+print(f"[PASSED] Telemetry audit record contains all required fields: {required_telemetry_keys}")
+print(f"         Audit record: {last_audit}")
+
+print("\n" + "=" * 80)
 print(" [SUCCESS] ALL TEST CASES PASSED PERFECTLY!")
 print("=" * 80)

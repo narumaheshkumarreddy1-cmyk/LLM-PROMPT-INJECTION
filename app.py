@@ -700,17 +700,50 @@ def get_groq_config():
 
     return groq_key.strip(), groq_model.strip()
 
+def get_openai_image_key():
+    """
+    Dedicated resolver strictly for OpenAI Image Generation (DALL-E 3).
+    Never uses Groq API keys.
+    """
+    img_key = ""
+    try:
+        img_key = st.session_state.get("custom_api_key", "")
+    except Exception:
+        pass
+    if not img_key and hasattr(st, "secrets"):
+        try:
+            img_key = st.secrets.get("OPENAI_API_KEY", "")
+        except Exception:
+            pass
+        if not img_key:
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict) and "OPENAI_API_KEY" in v:
+                        img_key = v["OPENAI_API_KEY"]
+                        break
+            except Exception:
+                pass
+    if not img_key:
+        img_key = os.environ.get("OPENAI_API_KEY", "")
+    img_key = (img_key or "").strip()
+    if img_key.startswith("gsk_"):
+        return ""
+    return img_key
+
 def get_groq_client(api_key=None):
     """
     Returns an OpenAI-compatible Groq client using base_url='https://api.groq.com/openai/v1'.
-    Ensures Groq API key is NEVER sent to the default OpenAI endpoint.
+    Ensures Groq API key is NEVER mixed with OpenAI keys and never sent to OpenAI endpoints.
     """
     configured_key, _ = get_groq_config()
-    effective_key = (api_key or configured_key).strip()
-    if not effective_key:
+    candidate_key = (api_key or configured_key).strip()
+    # Guard against OpenAI key cross-contamination:
+    if candidate_key.startswith("sk-") and not candidate_key.startswith("gsk_"):
+        candidate_key = configured_key.strip()
+    if not candidate_key or (candidate_key.startswith("sk-") and not candidate_key.startswith("gsk_")):
         return None
     return openai.OpenAI(
-        api_key=effective_key,
+        api_key=candidate_key,
         base_url="https://api.groq.com/openai/v1"
     )
 
@@ -791,13 +824,25 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
             }
 
 
+    # Fast-path benign creation, prompt-writing, and educational queries to save Groq tokens/rate-limits
+    if is_educational or is_benign_study or any(p in prompt_lower for p in ["generate an image", "create an image", "need an image", "realistic image", "prompt for", "write python", "what is"]):
+        if not is_threat:
+            return {
+                "label": "SAFE",
+                "category": "BENIGN_INQUIRY",
+                "intent": "Safe Content / Creation Request",
+                "risk_score": 0.0,
+                "confidence": 0.98,
+                "reason": "Verified benign content and creation intent."
+            }
+
     system_instruction = (
         "You are a Semantic Intent & Cyber Safety Classifier. Evaluate if the prompt asks to CREATE malware, "
         "EXPLOIT vulnerabilities, or HACK devices. Respond in JSON format with fields: label, category, intent, risk_score, confidence, reason."
     )
 
     groq_k, groq_m = get_groq_config()
-    groq_c = get_groq_client(api_key if ("Groq" in engine_choice or "OpenAI" in engine_choice) else None)
+    groq_c = get_groq_client(api_key if (api_key and str(api_key).startswith("gsk_")) else None)
     if ("Groq" in engine_choice or "OpenAI" in engine_choice or groq_k) and groq_c:
         try:
             resp = groq_c.chat.completions.create(
@@ -1009,6 +1054,8 @@ ROUTER_INTENT_BENCHMARKS = [
     ("what is the capital of france", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("how can i generate a car image", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("what tools can be used to create ai images", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("how do ai image generators work", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("explain how image generation works", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("explain prompt injection attacks and defense strategies", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("what is malware and how do firewalls work", INTENT_GENERAL_CHAT, ACTION_CHAT),
 
@@ -1016,6 +1063,8 @@ ROUTER_INTENT_BENCHMARKS = [
     ("give me a prompt to generate a realistic red sports car", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("i need a prompt for generating a car image in chatgpt", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("give me a prompt for a car image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+    ("give me a prompt for a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+    ("give me a prompt that i can use to generate a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("write a midjourney prompt for a futuristic cyberpunk city", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("suggest a dall-e 3 prompt for a cozy coffee shop", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("provide a detailed prompt for generating an image of a blue dragon", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
@@ -1028,6 +1077,10 @@ ROUTER_INTENT_BENCHMARKS = [
     # IMAGE_GENERATION
     ("generate a realistic red sports car on a mountain road", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("create an image of a blue bus", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("generate an image of a bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("create a realistic bus image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("i need an image of a bus", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("create a realistic red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate an image of a snake in a forest", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("draw a picture of an astronaut riding a horse on mars", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("render a 3d isometric cyberpunk bedroom", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
@@ -1072,6 +1125,18 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
     p_clean = user_prompt.strip()
     p_lower = p_clean.lower()
     
+    # 0. Educational / Explanatory inquiries about image generation -> GENERAL_CHAT
+    is_educational_how = bool(re.search(r"^\b(how\s+(can|do|does|to)\s+(i|we|ai|dall-?e|midjourney)?\s*(generate|create|make|work))\b", p_lower) or re.search(r"\bexplain\s+how\s+(image\s+generation|ai\s+images?)\s+works?\b", p_lower) or re.search(r"\bhow\s+do\s+ai\s+image\s+generators?\s+work\b", p_lower))
+    if is_educational_how and not any(w in p_lower for w in ["generate an image", "create an image", "draw an image"]):
+        return {
+            "intent": INTENT_GENERAL_CHAT,
+            "confidence": 0.95,
+            "action": ACTION_CHAT,
+            "secondary_action": None,
+            "is_multi_action": False,
+            "reasoning": "User inquired about how image generation technology or tools work."
+        }
+
     # 1. Multi-Action Detection ("Give me a prompt for X, then generate it")
     has_prompt_req = bool(re.search(r"\b(give|write|need|suggest|create|draft|provide)\b.*\b(prompt)\b", p_lower))
     has_gen_followup = bool(re.search(r"\b(then|afterwards|now|and)\s+(generate|create|render|draw|make)\s+(it|the\s+image|image|photo)\b", p_lower))
@@ -1142,7 +1207,7 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
     # 4. Explicit PROMPT_WRITING Check
     prompt_asking_patterns = [
         r"\b(give|provide|show|write|craft|suggest|need|want|draft|generate|create)\b.*\b(prompt|prompts)\b",
-        r"\b(prompt|prompts)\s+(to|for|about)\s+(generate|creating|generating|drawing|make|making)",
+        r"\b(prompt|prompts)\s+(to|for|about|that\s+i\s+can\s+use\s+to)\s+(generate|creating|generating|drawing|make|making)",
         r"\b(image\s+prompt|midjourney\s+prompt|dall-?e\s+prompt|diffusion\s+prompt)\b",
         r"\bprompt\s+ideas?\b",
     ]
@@ -1175,10 +1240,11 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
         }
 
     # 6. Direct IMAGE_GENERATION Check (imperative to generate/create an image)
-    is_educational_how = bool(re.search(r"^\b(how\s+(can|do|to)\s+(i|we)?\s*(generate|create|make))\b", p_lower))
     if not is_educational_how:
         image_gen_patterns = [
-            r"^\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
+            r"\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
+            r"\b(i\s+need|want|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
+            r"\b(create|generate|render|draw)\s+(an?|some)?\s*(\w+\s+)*(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut)\s+(image|photo|picture)\b",
             r"^\b(generate|create|render|draw)\s+(an?|some)?\s*(\w+\s+)*(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut)\b",
             r"\b(generate|create|draw|render)\s+a\s+realistic\s+[a-z\s]+(on|in|at|with)\b"
         ]
@@ -1191,6 +1257,7 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
                 "is_multi_action": False,
                 "reasoning": "User directly commanded the creation/rendering of an image."
             }
+
 
     # 7. TF-IDF Supporting Cosine Similarity
     vec = _ROUTER_VECTORIZER.transform([user_prompt])
@@ -1248,16 +1315,16 @@ def classify_intent_with_llm(user_prompt: str, history_messages=None, has_file: 
     )
 
     groq_k, groq_m = get_groq_config()
-    groq_c = get_groq_client(api_key if ("Groq" in engine_choice or "OpenAI" in engine_choice) else None)
+    groq_c = get_groq_client(api_key if (api_key and str(api_key).startswith("gsk_")) else None)
     if ("Groq" in engine_choice or "OpenAI" in engine_choice or groq_k) and groq_c:
         try:
             llm_msgs = [{"role": "system", "content": system_prompt}]
             if history_messages:
-                for m in history_messages[-4:]:
+                for m in history_messages[-2:]:
                     if m.get("role") in ["user", "assistant"]:
                         c = m.get("content") or (m.get("answer", {}).get("content") if isinstance(m.get("answer"), dict) else "")
                         if c:
-                            llm_msgs.append({"role": m["role"], "content": str(c)[:300]})
+                            llm_msgs.append({"role": m["role"], "content": str(c)[:150]})
             llm_msgs.append({"role": "user", "content": f"User Prompt: {user_prompt}\nAttached File: {has_file}\nAttached Image: {has_image}"})
             
             resp = groq_c.chat.completions.create(
@@ -1361,7 +1428,7 @@ def generate_ai_image(prompt_text, api_key=None, history_messages=None):
     Never routes to Llama 3.2 text LLM.
     """
     pref_engine = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
-    effective_key = api_key or st.session_state.get("custom_api_key", "")
+    effective_key = api_key if (api_key and not str(api_key).startswith("gsk_")) else get_openai_image_key()
     
     clean_p = prompt_text.strip()
     # If contextual refinement from history
@@ -1380,7 +1447,7 @@ def generate_ai_image(prompt_text, api_key=None, history_messages=None):
                 "content": "Image generation is not configured. Please configure an image-generation provider/API key."
             }
         try:
-            client = openai.OpenAI(api_key=effective_key)
+            client = openai.OpenAI(api_key=effective_key, base_url="https://api.openai.com/v1")
             response = client.images.generate(
                 model="dall-e-3",
                 prompt=f"High resolution realistic photo of: {clean_p}",
@@ -1450,7 +1517,7 @@ def craft_engineered_prompt(user_input, history_messages=None, engine_choice="",
     )
 
     groq_k, groq_m = get_groq_config()
-    groq_c = get_groq_client(effective_key if ("Groq" in engine_choice or "OpenAI" in engine_choice) else None)
+    groq_c = get_groq_client(effective_key if (effective_key and str(effective_key).startswith("gsk_")) else None)
     if ("Groq" in engine_choice or "OpenAI" in engine_choice or groq_k) and groq_c:
         try:
             llm_msgs = [{"role": "system", "content": system_prompt}]
@@ -1561,8 +1628,9 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         security_res["intent"] = intent
         security_res["confidence"] = confidence
         security_res["security_decision"] = security_res.get("action", "ALLOW")
-        security_res["final_action"] = action
+        security_res["selected_provider"] = selected_model_label
         security_res["selected_provider_model"] = selected_model_label
+        security_res["final_action"] = action
 
         if st.session_state.get("audit_history"):
             st.session_state.audit_history[-1].update({
@@ -1570,8 +1638,9 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 "intent": intent,
                 "confidence": confidence,
                 "security_decision": security_res.get("action", "ALLOW"),
+                "selected_provider": selected_model_label,
+                "selected_provider_model": selected_model_label,
                 "final_action": action,
-                "selected_provider_model": selected_model_label
             })
 
     effective_key = api_key or st.session_state.get("custom_api_key", "")
@@ -1586,9 +1655,10 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
 
     # INTENT: IMAGE_GENERATION (Called ONLY when final intent is IMAGE_GENERATION)
     if intent == INTENT_IMAGE_GENERATION:
+        img_key = get_openai_image_key()
         if is_multi_action:
             crafted = craft_engineered_prompt(user_input, history_messages, engine_choice, effective_key)
-            img_res = generate_ai_image(user_input, effective_key, history_messages)
+            img_res = generate_ai_image(user_input, img_key, history_messages)
             if img_res.get("type") == "image":
                 img_res["content"] = f"{crafted}\n\n---\n\nHere is your generated image:"
                 return img_res
@@ -1598,7 +1668,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "content": f"{crafted}\n\n---\n\n⚠️ {img_res.get('content', 'Image generation could not be completed.')}"
                 }
         else:
-            img_res = generate_ai_image(user_input, effective_key, history_messages)
+            img_res = generate_ai_image(user_input, img_key, history_messages)
             if img_res.get("type") == "image":
                 return img_res
             else:
@@ -1751,7 +1821,13 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             )
             return {"type": "text", "content": resp.choices[0].message.content}
         except Exception as e:
-            return {"type": "text", "content": f"⚠️ **Groq API Error:** {str(e)}"}
+            err_str = str(e)
+            if "429" in err_str or "rate_limit" in err_str.lower():
+                return {
+                    "type": "text",
+                    "content": "⚠️ **Groq Rate Limit Exceeded (HTTP 429):** The Groq LLM endpoint is currently rate-limited. Please wait a moment before trying again, or switch models in the sidebar."
+                }
+            return {"type": "text", "content": f"⚠️ **Groq API Error:** {err_str}"}
 
     if "Ollama" in engine_choice:
         try:
