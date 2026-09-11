@@ -13,6 +13,9 @@ from app import (
     generate_chatbot_answer,
     generate_ai_image,
     is_image_request_prompt,
+    save_persistent_secrets,
+    get_groq_config,
+    get_openai_image_key,
     INTENT_GENERAL_CHAT,
     INTENT_PROMPT_WRITING,
     INTENT_IMAGE_GENERATION,
@@ -360,6 +363,63 @@ ans_pw_roadmap = generate_chatbot_answer(
 assert ans_pw_roadmap.get("type") == "text", "PROMPT_WRITING must return text, not image!"
 assert "image" not in ans_pw_roadmap.get("type", ""), "PROMPT_WRITING must not return image!"
 print("[PASSED] 'Give me a prompt for a Python learning roadmap' returned prompt text and did NOT generate an image.")
+
+print("\n" + "=" * 80)
+print(" 11. PERSISTENT SECRETS VERIFICATION (SURVIVES PAGE REFRESH)")
+print("=" * 80)
+
+# Verify reading from persistent secrets.toml
+gk_loaded, gm_loaded = get_groq_config()
+assert bool(gk_loaded) and gk_loaded.startswith("gsk_"), f"Expected persistent Groq key, got: {gk_loaded}"
+print(f"[PASSED] Persistent Groq Key loaded cleanly: {gk_loaded[:8]}...{gk_loaded[-4:]}")
+print(f"[PASSED] Persistent Groq Model loaded cleanly: {gm_loaded}")
+
+# Test saving and reading through save_persistent_secrets
+test_model_save = "openai/gpt-oss-120b"
+save_persistent_secrets(groq_model=test_model_save)
+k_check, m_check = get_groq_config()
+assert m_check == test_model_save, f"Expected {test_model_save}, got: {m_check}"
+print(f"[PASSED] Secrets persistence successfully updated and retrieved model: {m_check}")
+
+print("\n" + "=" * 80)
+print(" 12. MERMAID DIAGRAM VS IMAGE GENERATION ROUTING VERIFICATION")
+print("=" * 80)
+
+# Prompt requesting Mermaid code -> GENERAL_CHAT -> Text with Mermaid code, NEVER an image
+r_mermaid = resolve_semantic_routing("Give me Mermaid code for a 30-day Python learning plan")
+assert r_mermaid["intent"] == INTENT_GENERAL_CHAT, f"Expected GENERAL_CHAT, got: {r_mermaid['intent']}"
+assert r_mermaid["action"] == ACTION_CHAT, f"Expected CHAT, got: {r_mermaid['action']}"
+print(f"[PASSED] 'Give me Mermaid code for a 30-day Python learning plan' -> {r_mermaid['intent']} ({r_mermaid['action']})")
+
+m_audit_rec = {"action": "ALLOW", "risk_score": 0.0, "reason": "Mermaid test"}
+ans_mermaid = generate_chatbot_answer(
+    "Give me Mermaid code for a 30-day Python learning plan",
+    history_messages=[],
+    engine_choice="Groq Cloud API (Ultra-Fast LLM)",
+    api_key="",
+    security_res=m_audit_rec
+)
+assert ans_mermaid.get("type") == "text", f"Mermaid query must return text, got {ans_mermaid.get('type')}"
+assert "mermaid" in ans_mermaid.get("content", "").lower() or "graph" in ans_mermaid.get("content", "").lower(), "Mermaid answer must contain Mermaid diagram code!"
+print("[PASSED] Confirmed: Mermaid diagram request produces Mermaid code in text format and NEVER triggers image generation.")
+
+# Prompt requesting actual image -> IMAGE_GENERATION -> Image URL/object, NEVER Mermaid text
+r_image = resolve_semantic_routing("Generate a 30-day Python learning plan as an image")
+assert r_image["intent"] == INTENT_IMAGE_GENERATION, f"Expected IMAGE_GENERATION, got: {r_image['intent']}"
+assert r_image["action"] == ACTION_GENERATE_IMAGE, f"Expected GENERATE_IMAGE, got: {r_image['action']}"
+print(f"[PASSED] 'Generate a 30-day Python learning plan as an image' -> {r_image['intent']} ({r_image['action']})")
+
+img_audit_rec = {"action": "ALLOW", "risk_score": 0.0, "reason": "Image test"}
+ans_img_gen = generate_chatbot_answer(
+    "Generate a 30-day Python learning plan as an image",
+    history_messages=[],
+    engine_choice="Pollinations AI (Free & Instant)",
+    api_key="",
+    security_res=img_audit_rec
+)
+assert ans_img_gen.get("type") == "image", f"Image generation prompt must return image, got {ans_img_gen.get('type')}"
+assert "mermaid" not in ans_img_gen.get("url", "").lower(), "Image generation must produce image URL, not Mermaid!"
+print("[PASSED] Confirmed: Image request directly produces an image and NEVER returns Mermaid code.")
 
 print("\n" + "=" * 80)
 print(" [SUCCESS] ALL TEST CASES PASSED PERFECTLY!")

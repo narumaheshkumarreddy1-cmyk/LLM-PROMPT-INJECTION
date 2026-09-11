@@ -15,6 +15,7 @@ from PIL import Image
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import toml
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIGURATION & DASHBOARD THEME STYLING
@@ -349,6 +350,204 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
+# PERSISTENT SECRETS MANAGEMENT & API CONFIG UTILITIES
+# ---------------------------------------------------------
+def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
+    """
+    Saves API keys and configurations directly to .streamlit/secrets.toml
+    so that settings persist across page refreshes and server reboots.
+    Preserves existing sections (such as [auth]).
+    """
+    secrets_path = os.path.join(".streamlit", "secrets.toml")
+    existing_secrets = {}
+    try:
+        if os.path.exists(secrets_path):
+            with open(secrets_path, "r", encoding="utf-8") as f:
+                existing_secrets = toml.load(f)
+    except Exception:
+        existing_secrets = {}
+
+    if groq_key is not None:
+        groq_k_str = str(groq_key).strip()
+        existing_secrets["GROQ_API_KEY"] = groq_k_str
+        if "GROQ" not in existing_secrets or not isinstance(existing_secrets["GROQ"], dict):
+            existing_secrets["GROQ"] = {}
+        existing_secrets["GROQ"]["API_KEY"] = groq_k_str
+        if hasattr(st, "secrets"):
+            try:
+                st.secrets["GROQ_API_KEY"] = groq_k_str
+            except Exception:
+                pass
+        try:
+            st.session_state.custom_groq_api_key = groq_k_str
+        except Exception:
+            pass
+
+    if groq_model is not None:
+        groq_m_str = str(groq_model).strip()
+        existing_secrets["GROQ_MODEL"] = groq_m_str
+        if "GROQ" not in existing_secrets or not isinstance(existing_secrets["GROQ"], dict):
+            existing_secrets["GROQ"] = {}
+        existing_secrets["GROQ"]["MODEL"] = groq_m_str
+        if hasattr(st, "secrets"):
+            try:
+                st.secrets["GROQ_MODEL"] = groq_m_str
+            except Exception:
+                pass
+        try:
+            st.session_state.selected_groq_model = groq_m_str
+        except Exception:
+            pass
+
+    if openai_key is not None:
+        openai_k_str = str(openai_key).strip()
+        if not openai_k_str.startswith("gsk_"):
+            existing_secrets["OPENAI_API_KEY"] = openai_k_str
+            if "OPENAI" not in existing_secrets or not isinstance(existing_secrets["OPENAI"], dict):
+                existing_secrets["OPENAI"] = {}
+            existing_secrets["OPENAI"]["API_KEY"] = openai_k_str
+            if hasattr(st, "secrets"):
+                try:
+                    st.secrets["OPENAI_API_KEY"] = openai_k_str
+                except Exception:
+                    pass
+            try:
+                st.session_state.custom_api_key = openai_k_str
+            except Exception:
+                pass
+
+    os.makedirs(os.path.dirname(secrets_path) or ".", exist_ok=True)
+    with open(secrets_path, "w", encoding="utf-8") as f:
+        toml.dump(existing_secrets, f)
+    return True
+
+def get_groq_config():
+    """
+    Retrieves Groq API key and model from Streamlit secrets, environment variables, or session state.
+    Supports top-level keys as well as [GROQ] table sections.
+    Returns (groq_api_key, groq_model).
+    """
+    groq_key = ""
+    try:
+        groq_key = st.session_state.get("custom_groq_api_key", "")
+    except Exception:
+        pass
+    if not groq_key:
+        groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key and hasattr(st, "secrets"):
+        try:
+            groq_key = st.secrets.get("GROQ_API_KEY", "")
+        except Exception:
+            pass
+        if not groq_key:
+            try:
+                groq_sec = st.secrets.get("GROQ", {})
+                if isinstance(groq_sec, dict):
+                    groq_key = groq_sec.get("API_KEY", "") or groq_sec.get("GROQ_API_KEY", "")
+            except Exception:
+                pass
+        if not groq_key:
+            # Check if placed inside any TOML table/section
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict):
+                        if "GROQ_API_KEY" in v:
+                            groq_key = v["GROQ_API_KEY"]
+                            break
+                        elif "API_KEY" in v and "groq" in str(k).lower():
+                            groq_key = v["API_KEY"]
+                            break
+            except Exception:
+                pass
+        if not groq_key:
+            # Check for any secret ending with API_KEY containing groq
+            try:
+                for k, v in st.secrets.items():
+                    if "groq" in str(k).lower() and isinstance(v, str) and v.startswith("gsk_"):
+                        groq_key = v
+                        break
+            except Exception:
+                pass
+
+    groq_model = ""
+    try:
+        groq_model = st.session_state.get("selected_groq_model", "")
+    except Exception:
+        pass
+    if not groq_model:
+        groq_model = os.environ.get("GROQ_MODEL", "")
+    if not groq_model and hasattr(st, "secrets"):
+        try:
+            groq_model = st.secrets.get("GROQ_MODEL", "")
+        except Exception:
+            pass
+        if not groq_model:
+            try:
+                groq_sec = st.secrets.get("GROQ", {})
+                if isinstance(groq_sec, dict):
+                    groq_model = groq_sec.get("MODEL", "") or groq_sec.get("GROQ_MODEL", "")
+            except Exception:
+                pass
+        if not groq_model:
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict):
+                        if "GROQ_MODEL" in v:
+                            groq_model = v["GROQ_MODEL"]
+                            break
+                        elif "MODEL" in v and "groq" in str(k).lower():
+                            groq_model = v["MODEL"]
+                            break
+            except Exception:
+                pass
+    if not groq_model:
+        groq_model = "openai/gpt-oss-120b"
+
+    return groq_key.strip(), groq_model.strip()
+
+def get_openai_image_key():
+    """
+    Dedicated resolver strictly for OpenAI Image Generation (DALL-E 3).
+    Supports top-level keys as well as [OPENAI] table sections.
+    Never uses Groq API keys.
+    """
+    img_key = ""
+    try:
+        img_key = st.session_state.get("custom_api_key", "")
+    except Exception:
+        pass
+    if not img_key and hasattr(st, "secrets"):
+        try:
+            img_key = st.secrets.get("OPENAI_API_KEY", "")
+        except Exception:
+            pass
+        if not img_key:
+            try:
+                oai_sec = st.secrets.get("OPENAI", {})
+                if isinstance(oai_sec, dict):
+                    img_key = oai_sec.get("API_KEY", "") or oai_sec.get("OPENAI_API_KEY", "")
+            except Exception:
+                pass
+        if not img_key:
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict):
+                        if "OPENAI_API_KEY" in v:
+                            img_key = v["OPENAI_API_KEY"]
+                            break
+                        elif "API_KEY" in v and "openai" in str(k).lower():
+                            img_key = v["API_KEY"]
+                            break
+            except Exception:
+                pass
+    if not img_key:
+        img_key = os.environ.get("OPENAI_API_KEY", "")
+    img_key = (img_key or "").strip()
+    if img_key.startswith("gsk_"):
+        return ""
+    return img_key
+
+# ---------------------------------------------------------
 # 2. SESSION STATE MANAGEMENT
 # ---------------------------------------------------------
 if "total_scanned" not in st.session_state:
@@ -365,12 +564,15 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "auth_user" not in st.session_state:
     st.session_state.auth_user = ""
+# Auto-load persistent API credentials on fresh page render if not in session state
+_init_groq_k, _init_groq_m = get_groq_config()
+_init_oai_k = get_openai_image_key()
 if "custom_api_key" not in st.session_state:
-    st.session_state.custom_api_key = ""
+    st.session_state.custom_api_key = _init_oai_k
 if "custom_groq_api_key" not in st.session_state:
-    st.session_state.custom_groq_api_key = ""
+    st.session_state.custom_groq_api_key = _init_groq_k
 if "selected_groq_model" not in st.session_state:
-    st.session_state.selected_groq_model = "openai/gpt-oss-120b"
+    st.session_state.selected_groq_model = _init_groq_m or "openai/gpt-oss-120b"
 if "block_threshold" not in st.session_state:
     st.session_state.block_threshold = 0.70
 if "flag_threshold" not in st.session_state:
@@ -395,10 +597,41 @@ if "enable_multimodal" not in st.session_state:
 # Realistic Multi-Session Chat Storage (ChatGPT / Gemini AI Model)
 if "sessions" not in st.session_state:
     st.session_state.sessions = {
-        "sess_python_roadmap": {
-            "title": "30-Day Python Roadmap",
+        "sess_welcome": {
+            "title": "New Chat",
             "time": "Just now",
             "pinned": True,
+            "history": [
+                {
+                    "role": "assistant",
+                    "res": {
+                        "action": "ALLOW",
+                        "risk_score": 0.00,
+                        "inj_score": 0.00,
+                        "harm_score": 0.00,
+                        "inj_detected": False,
+                        "safety_label": "SAFE",
+                        "intent": "GENERAL_CHAT",
+                        "detected_intent": "GENERAL_CHAT",
+                        "semantic_category": "BENIGN_INQUIRY",
+                        "final_action": "CHAT",
+                        "selected_provider": "Groq Cloud API (Ultra-Fast LLM)",
+                        "selected_provider_model": f"Groq/{_init_groq_m or 'openai/gpt-oss-120b'}",
+                        "original_user_prompt": "N/A (System Welcome)",
+                        "image_generation_prompt": "N/A (Non-Image Intent)",
+                        "reason": "Gateway active. Security detectors online."
+                    },
+                    "answer": {
+                        "type": "text",
+                        "content": "👋 **Hello! How can I help you today?**\n\nI am your **AI Assistant & Security Gateway**, powered by ultra-fast Groq text intelligence and multimodal protection.\n\nHere is what you can ask me to do right away:\n- 💬 **Ask any question:** *\"Explain artificial intelligence\"*, *\"What is prompt injection?\"*\n- 🎨 **Generate Prompts:** *\"Give me a prompt for a realistic car image\"*\n- 🖼️ **Generate Images:** *\"Generate an image of a bus in a modern city\"* or *\"Generate a 30-day Python learning plan as an image\"*\n- 💻 **Write Code:** *\"Write Python code to check if a number is prime\"*\n- 📊 **Mermaid Diagrams:** *\"Give me Mermaid code for a 30-day Python learning plan\"*\n\nType your message in the chat box below to begin!"
+                    }
+                }
+            ]
+        },
+        "sess_python_roadmap": {
+            "title": "30-Day Python Roadmap",
+            "time": "5 min ago",
+            "pinned": False,
             "history": [
                 {"role": "user", "content": "Generate a 30 day Python learning plan as an image"},
                 {
@@ -512,13 +745,13 @@ if "sessions" not in st.session_state:
     }
 
 if "current_session_id" not in st.session_state:
-    st.session_state.current_session_id = "sess_python_roadmap"
+    st.session_state.current_session_id = "sess_welcome"
 
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = list(st.session_state.sessions["sess_python_roadmap"]["history"])
+    st.session_state.chat_history = list(st.session_state.sessions["sess_welcome"]["history"])
 
 if "nav_choice" not in st.session_state:
-    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
 
 if "renaming_sid" not in st.session_state:
     st.session_state.renaming_sid = None
@@ -643,100 +876,6 @@ def scan_prompt_injection(user_input):
         "attack_type": "none",
         "reason": "No Prompt Injection signatures detected."
     }
-
-# ---------------------------------------------------------
-# GROQ CLOUD API PROVIDER UTILITIES
-# ---------------------------------------------------------
-def get_groq_config():
-    """
-    Retrieves Groq API key and model from Streamlit secrets, environment variables, or session state.
-    Returns (groq_api_key, groq_model).
-    """
-    groq_key = ""
-    try:
-        groq_key = st.session_state.get("custom_groq_api_key", "")
-    except Exception:
-        pass
-    if not groq_key:
-        groq_key = os.environ.get("GROQ_API_KEY", "")
-    if not groq_key and hasattr(st, "secrets"):
-        try:
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
-        except Exception:
-            pass
-        if not groq_key:
-            # Check if placed inside a TOML table/section
-            try:
-                for k, v in st.secrets.items():
-                    if isinstance(v, dict) and "GROQ_API_KEY" in v:
-                        groq_key = v["GROQ_API_KEY"]
-                        break
-            except Exception:
-                pass
-        if not groq_key:
-            # Check for any secret ending with API_KEY containing groq
-            try:
-                for k, v in st.secrets.items():
-                    if "groq" in str(k).lower() and isinstance(v, str) and v.startswith("gsk_"):
-                        groq_key = v
-                        break
-            except Exception:
-                pass
-
-    groq_model = ""
-    try:
-        groq_model = st.session_state.get("selected_groq_model", "")
-    except Exception:
-        pass
-    if not groq_model:
-        groq_model = os.environ.get("GROQ_MODEL", "")
-    if not groq_model and hasattr(st, "secrets"):
-        try:
-            groq_model = st.secrets.get("GROQ_MODEL", "")
-        except Exception:
-            pass
-        if not groq_model:
-            try:
-                for k, v in st.secrets.items():
-                    if isinstance(v, dict) and "GROQ_MODEL" in v:
-                        groq_model = v["GROQ_MODEL"]
-                        break
-            except Exception:
-                pass
-    if not groq_model:
-        groq_model = "openai/gpt-oss-120b"
-
-    return groq_key.strip(), groq_model.strip()
-
-def get_openai_image_key():
-    """
-    Dedicated resolver strictly for OpenAI Image Generation (DALL-E 3).
-    Never uses Groq API keys.
-    """
-    img_key = ""
-    try:
-        img_key = st.session_state.get("custom_api_key", "")
-    except Exception:
-        pass
-    if not img_key and hasattr(st, "secrets"):
-        try:
-            img_key = st.secrets.get("OPENAI_API_KEY", "")
-        except Exception:
-            pass
-        if not img_key:
-            try:
-                for k, v in st.secrets.items():
-                    if isinstance(v, dict) and "OPENAI_API_KEY" in v:
-                        img_key = v["OPENAI_API_KEY"]
-                        break
-            except Exception:
-                pass
-    if not img_key:
-        img_key = os.environ.get("OPENAI_API_KEY", "")
-    img_key = (img_key or "").strip()
-    if img_key.startswith("gsk_"):
-        return ""
-    return img_key
 
 def get_groq_client(api_key=None):
     """
@@ -1142,7 +1281,18 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
     p_clean = user_prompt.strip()
     p_lower = p_clean.lower()
     
-    # 0. Educational / Explanatory inquiries about image generation -> GENERAL_CHAT
+    # 0. Explicit Mermaid diagram/code requests -> GENERAL_CHAT (Groq returns text/Mermaid diagram, NEVER image)
+    if "mermaid" in p_lower:
+        return {
+            "intent": INTENT_GENERAL_CHAT,
+            "confidence": 0.98,
+            "action": ACTION_CHAT,
+            "secondary_action": None,
+            "is_multi_action": False,
+            "reasoning": "User explicitly requested Mermaid diagram code/syntax, handled as text generation."
+        }
+
+    # 0b. Educational / Explanatory inquiries about image generation -> GENERAL_CHAT
     is_educational_how = bool(re.search(r"^\b(how\s+(can|do|does|to)\s+(i|we|ai|dall-?e|midjourney)?\s*(generate|create|make|work))\b", p_lower) or re.search(r"\bexplain\s+how\s+(image\s+generation|ai\s+images?)\s+works?\b", p_lower) or re.search(r"\bhow\s+do\s+ai\s+image\s+generators?\s+work\b", p_lower))
     if is_educational_how and not any(w in p_lower for w in ["generate an image", "create an image", "draw an image"]):
         return {
@@ -1321,7 +1471,7 @@ def classify_intent_with_llm(user_prompt: str, history_messages=None, has_file: 
         "You are an expert Semantic Intent Classifier for an AI Security Gateway.\n"
         "Analyze the user's complete prompt, multi-turn conversation context, and uploaded file status.\n"
         "Classify into EXACTLY ONE of these 6 intents:\n"
-        "1. GENERAL_CHAT (action: 'CHAT'): Explanations, Q&A, general inquiries (e.g., 'Explain artificial intelligence', 'How can I generate a car image?').\n"
+        "1. GENERAL_CHAT (action: 'CHAT'): Explanations, Q&A, general inquiries, and Mermaid diagram code generation (e.g., 'Explain artificial intelligence', 'How can I generate a car image?', 'Give me Mermaid code for a 30-day Python learning plan'). CRITICAL: Mermaid diagram syntax requests are ALWAYS GENERAL_CHAT, NEVER IMAGE_GENERATION!\n"
         "2. PROMPT_WRITING (action: 'WRITE_PROMPT'): User wants a prompt to be written/crafted for image/video/text diffusion models (e.g., 'Give me a prompt to generate a realistic red sports car', 'I need a prompt for generating a car image in ChatGPT', 'Make it cinematic'). CRITICAL: Do NOT select IMAGE_GENERATION when user asks FOR a prompt!\n"
         "3. IMAGE_GENERATION (action: 'GENERATE_IMAGE'): User commands AI to generate/render/draw an image itself right now (e.g., 'Generate a realistic red sports car on a mountain road', 'Create an image of a blue bus', 'Now generate the image').\n"
         "4. IMAGE_ANALYSIS (action: 'ANALYZE_IMAGE'): User wants an image inspected/described/analyzed (e.g., 'What is in this image?').\n"
@@ -2007,7 +2157,25 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             pass
 
     # Built-in High-Capacity Knowledge Engine for Offline / Fast Mode
-    if "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
+    if "mermaid" in query_lower:
+        clean_mermaid_topic = re.sub(r"(?i)\b(give me|generate|write|show|provide|create|code|for|a|an|mermaid|diagram)\b", "", user_input).strip().strip("?:., ")
+        m_title = clean_mermaid_topic.title() if clean_mermaid_topic else "Learning Roadmap"
+        text_out = (
+            f"### 📊 Mermaid Diagram Code: {m_title}\n\n"
+            f"Here is the Mermaid diagram code for **{m_title}**:\n\n"
+            f"```mermaid\n"
+            f"graph TD\n"
+            f"    A[Start: Fundamentals] --> B[Phase 1: Core Syntax & Data Types]\n"
+            f"    B --> C[Phase 2: Control Flow & Functions]\n"
+            f"    C --> D[Phase 3: Object-Oriented Programming]\n"
+            f"    D --> E[Phase 4: Practical Projects & Modules]\n"
+            f"    E --> F[Milestone: Proficiency Achieved]\n"
+            f"```\n\n"
+            f"You can render this diagram in any Markdown viewer or tool that supports Mermaid."
+        )
+        return {"type": "text", "content": text_out}
+
+    elif "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
         text_out = ("### ☕ Java Programming Language Overview\n\n"
                     "**Java** is a class-based, object-oriented programming language designed with the **\"Write Once, Run Anywhere\" (WORA)** philosophy.\n\n"
                     "#### 1. Core Architecture & Features\n"
@@ -2133,11 +2301,11 @@ if st.sidebar.button("➕ New Chat", type="primary", width="stretch"):
     new_sid = f"sess_{int(time.time())}"
     st.session_state.current_session_id = new_sid
     st.session_state.chat_history = []
-    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
     st.rerun()
 
 st.sidebar.markdown('<div class="sidebar-section-title">Navigation</div>', unsafe_allow_html=True)
-nav_options = ["🖼️ Multimodal & Image Guard", "📊 Telemetry & Audit Logs", "📁 Security Projects & Rules", "⚙️ Engine Settings"]
+nav_options = ["💬 AI Assistant & Security Gateway", "📊 Telemetry & Audit Logs", "📁 Security Projects & Rules", "⚙️ Engine Settings"]
 current_idx = nav_options.index(st.session_state.nav_choice) if st.session_state.nav_choice in nav_options else 0
 nav_choice = st.sidebar.radio(
     "Nav",
@@ -2183,7 +2351,7 @@ else:
             if st.button(label, key=f"pin_open_{sid}", width="stretch", help=f"Open: {s_title}"):
                 st.session_state.current_session_id = sid
                 st.session_state.chat_history = list(sdata.get("history", []))
-                st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
                 st.rerun()
         with p_col2:
             with st.popover("⋯", help="Options"):
@@ -2197,7 +2365,7 @@ else:
                 if st.button("🖨️ Print Chat", key=f"pop_prn_p_{sid}", width="stretch"):
                     st.session_state.current_session_id = sid
                     st.session_state.chat_history = list(sdata.get("history", []))
-                    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
                     st.session_state.trigger_print_sid = sid
                     st.rerun()
                 if st.button("🗑️ Delete", key=f"pop_del_p_{sid}", width="stretch"):
@@ -2225,7 +2393,7 @@ else:
             if st.button(label, key=f"rec_open_{sid}", width="stretch", help=f"Open: {s_title} ({s_time})"):
                 st.session_state.current_session_id = sid
                 st.session_state.chat_history = list(sdata.get("history", []))
-                st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
                 st.rerun()
         with r_col2:
             with st.popover("⋯", help="Options"):
@@ -2239,7 +2407,7 @@ else:
                 if st.button("🖨️ Print Chat", key=f"pop_prn_r_{sid}", width="stretch"):
                     st.session_state.current_session_id = sid
                     st.session_state.chat_history = list(sdata.get("history", []))
-                    st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
+                    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
                     st.session_state.trigger_print_sid = sid
                     st.rerun()
                 if st.button("🗑️ Delete", key=f"pop_del_r_{sid}", width="stretch"):
@@ -2292,20 +2460,20 @@ if st.sidebar.button("Sign Out", type="secondary", width="stretch"):
 # 9. MAIN ROUTER & DASHBOARD VIEWS
 # ---------------------------------------------------------
 
-# VIEW 1: MULTIMODAL & IMAGE GUARD
-if nav_choice == "🖼️ Multimodal & Image Guard":
+# VIEW 1: AI ASSISTANT & SECURITY GATEWAY
+if nav_choice == "💬 AI Assistant & Security Gateway":
     head_col1, head_col2, head_col3, head_col4 = st.columns([1.8, 0.7, 1.1, 1.4])
 
     with head_col1:
         st.markdown('''
         <div class="dash-header-title">
-            <span>🖼️</span> Multimodal & Image Guard
+            <span>💬</span> AI Assistant & Security Gateway
         </div>
-        <div class="dash-header-sub">Upload files, analyze content, or generate images safely</div>
+        <div class="dash-header-sub">General chat, prompt writing, code generation, and safe image creation</div>
         ''', unsafe_allow_html=True)
 
     with head_col2:
-        cur_id = st.session_state.get("current_session_id", "sess_python_roadmap")
+        cur_id = st.session_state.get("current_session_id", "sess_welcome")
         is_pinned = st.session_state.sessions.get(cur_id, {}).get("pinned", False)
         
         with st.popover("⚙️ Options", width="stretch"):
@@ -2443,7 +2611,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     center_canvas, right_panel = st.columns([1.8, 1])
 
     latest_res = None
-    active_prompt_text = "Generate a 30 day Python learning plan as an image"
+    active_prompt_text = "Welcome to AI Assistant"
 
     with center_canvas:
         # Render Conversation Messages & Execution Cards
@@ -2526,12 +2694,12 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     with right_panel:
         res_disp = latest_res if latest_res else {
             "action": "ALLOW",
-            "risk_score": 0.02,
+            "risk_score": 0.00,
             "inj_score": 0.00,
-            "harm_score": 0.01,
+            "harm_score": 0.00,
             "inj_detected": False,
             "safety_label": "SAFE",
-            "intent": "Image Generation",
+            "intent": "GENERAL_CHAT",
             "semantic_category": "BENIGN_INQUIRY",
             "reason": "Verified clean by all security detectors."
         }
@@ -2619,41 +2787,12 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     # BOTTOM DOCKED INPUT BAR
     st.markdown("<hr style='margin: 10px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
-    dock_col1, dock_col2, dock_col3 = st.columns([1, 1, 4])
+    dock_col1, dock_col2 = st.columns([1, 6])
 
     with dock_col1:
         uploaded_file = st.file_uploader("Upload File", type=["png", "jpg", "jpeg", "txt", "py", "csv", "json", "pdf"], label_visibility="collapsed")
 
     with dock_col2:
-        if st.button("🖼️ Generate Image", width="stretch"):
-            raw_p = "30 day Python learning plan as an image"
-            img_prompt = raw_p if is_image_request_prompt(raw_p) else f"Generate an image of {raw_p}"
-            st.session_state.chat_history.append({"role": "user", "content": img_prompt})
-            res = aggregate_security_pipeline(img_prompt, engine_choice, api_key)
-            ans = generate_chatbot_answer(img_prompt, st.session_state.chat_history, engine_choice, api_key, res)
-            st.session_state.total_scanned += 1
-            if res["action"] == "BLOCK":
-                st.session_state.blocked_requests += 1
-            elif res["action"] == "FLAG":
-                st.session_state.flagged_requests += 1
-            else:
-                st.session_state.allowed_requests += 1
-            st.session_state.chat_history.append({"role": "assistant", "res": res, "answer": ans})
-            
-            # Persist to active session
-            cur_sid = st.session_state.get("current_session_id", "sess_python_roadmap")
-            if cur_sid not in st.session_state.sessions:
-                st.session_state.sessions[cur_sid] = {
-                    "title": img_prompt[:22] + ("..." if len(img_prompt) > 22 else ""),
-                    "time": "Just now",
-                    "pinned": False,
-                    "history": []
-                }
-            st.session_state.sessions[cur_sid]["history"] = list(st.session_state.chat_history)
-            st.session_state.sessions[cur_sid]["time"] = "Just now"
-            st.rerun()
-
-    with dock_col3:
         user_prompt_input = st.chat_input("Type your message or upload a file...")
 
     if user_prompt_input or uploaded_file:
@@ -2685,7 +2824,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
             })
             
             # Persist to active session
-            cur_sid = st.session_state.get("current_session_id", "sess_python_roadmap")
+            cur_sid = st.session_state.get("current_session_id", "sess_welcome")
             if cur_sid not in st.session_state.sessions:
                 st.session_state.sessions[cur_sid] = {
                     "title": prompt_to_run[:22] + ("..." if len(prompt_to_run) > 22 else ""),
@@ -2820,7 +2959,7 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
         else:
             st.info("No audit log entries matching current filter.")
     else:
-        st.info("No security scans recorded yet in this session. Run prompts in 'Multimodal & Image Guard' to generate telemetry logs.")
+        st.info("No security scans recorded yet in this session. Run prompts in 'AI Assistant & Security Gateway' to generate telemetry logs.")
 
     st.markdown("---")
     st.subheader("📈 Security Risk & Intent Distribution Summary")
@@ -3006,19 +3145,24 @@ elif nav_choice == "⚙️ Engine Settings":
         input_groq_model = st.selectbox("Groq Model:", groq_model_options, index=gmodel_idx)
         
         if st.button("💾 Save Groq Settings", type="primary"):
+            save_persistent_secrets(groq_key=input_groq_key.strip(), groq_model=input_groq_model.strip())
             st.session_state.custom_groq_api_key = input_groq_key.strip()
             st.session_state.selected_groq_model = input_groq_model.strip()
-            st.success("Groq Cloud settings updated successfully!")
+            masked_k = f"{input_groq_key[:8]}...{input_groq_key[-4:]}" if len(input_groq_key.strip()) > 12 else ("Configured" if input_groq_key.strip() else "Cleared")
+            st.success(f"Groq Cloud settings saved securely to secrets configuration ({masked_k})! Settings will persist across page refreshes.")
             st.rerun()
 
         st.markdown("---")
         st.subheader("🔑 OpenAI API Key Configuration (Image Generation)")
         st.write("Enter your OpenAI API key strictly for DALL-E 3 image generation.")
         
-        input_key = st.text_input("OpenAI API Key (DALL-E 3 Image Generation Only):", value=st.session_state.custom_api_key, type="password", placeholder="sk-proj-...")
+        current_oai_key = get_openai_image_key()
+        input_key = st.text_input("OpenAI API Key (DALL-E 3 Image Generation Only):", value=st.session_state.custom_api_key or current_oai_key or "", type="password", placeholder="sk-proj-...")
         if st.button("💾 Save OpenAI Key", type="secondary"):
+            save_persistent_secrets(openai_key=input_key.strip())
             st.session_state.custom_api_key = input_key.strip()
-            st.success("OpenAI Key updated successfully!")
+            masked_oai = f"{input_key[:8]}...{input_key[-4:]}" if len(input_key.strip()) > 12 else ("Configured" if input_key.strip() else "Cleared")
+            st.success(f"OpenAI Image Key saved securely to secrets configuration ({masked_oai})! Settings will persist across page refreshes.")
             st.rerun()
 
         st.markdown("---")
@@ -3074,7 +3218,7 @@ elif nav_choice == "⚙️ Engine Settings":
             "selected_image_engine": st.session_state.selected_image_engine,
             "groq_configured": bool(groq_k_diag),
             "groq_model": groq_m_diag,
-            "openai_image_key_configured": bool(st.session_state.custom_api_key or st.secrets.get("OPENAI_API_KEY")),
+            "openai_image_key_configured": bool(get_openai_image_key()),
             "active_detectors": {
                 "detector_1_regex": st.session_state.enable_detector_1,
                 "detector_2_tfidf": st.session_state.enable_detector_2,
