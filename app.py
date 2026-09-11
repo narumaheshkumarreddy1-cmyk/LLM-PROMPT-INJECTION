@@ -665,6 +665,15 @@ def get_groq_config():
                         break
             except Exception:
                 pass
+        if not groq_key:
+            # Check for any secret ending with API_KEY containing groq
+            try:
+                for k, v in st.secrets.items():
+                    if "groq" in str(k).lower() and isinstance(v, str) and v.startswith("gsk_"):
+                        groq_key = v
+                        break
+            except Exception:
+                pass
 
     groq_model = ""
     try:
