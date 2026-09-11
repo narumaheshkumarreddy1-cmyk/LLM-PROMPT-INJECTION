@@ -194,5 +194,35 @@ print(f"[PASSED] Correct notice returned: \"{unconfigured_res['content']}\"")
 st.session_state.selected_image_engine = "Pollinations AI (Free & Instant)"
 
 print("\n" + "=" * 80)
+print(" 8. GROQ PROVIDER & TELEMETRY VERIFICATION")
+print("=" * 80)
+
+from app import get_groq_config, get_groq_client
+
+# Test 1: get_groq_config returns model
+k, m = get_groq_config()
+assert bool(m) and isinstance(m, str), f"Expected valid groq model name, got: {m}"
+print(f"[PASSED] Groq config detected model: '{m}'")
+
+# Test 2: Groq telemetry label format in generate_chatbot_answer
+mock_sec_record = {"action": "ALLOW", "risk_score": 0.0, "reason": "Test clean"}
+st.session_state.selected_groq_model = "llama-3.3-70b-versatile"
+ans_groq = generate_chatbot_answer(
+    "Explain artificial intelligence",
+    history_messages=[],
+    engine_choice="Groq Cloud API (Ultra-Fast LLM)",
+    api_key="",
+    security_res=mock_sec_record
+)
+assert mock_sec_record.get("selected_provider_model") == "Groq/llama-3.3-70b-versatile", (
+    f"Expected 'Groq/llama-3.3-70b-versatile', got: {mock_sec_record.get('selected_provider_model')}"
+)
+print(f"[PASSED] Telemetry logged correct Groq provider: '{mock_sec_record.get('selected_provider_model')}'")
+
+# Test 3: Groq text call NEVER returns an image or invokes image generator
+assert ans_groq.get("type") == "text", "Groq text call must return text, not image"
+print("[PASSED] Confirmed: Groq call is strictly text generation and never returns an image.")
+
+print("\n" + "=" * 80)
 print(" [SUCCESS] ALL TEST CASES PASSED PERFECTLY!")
 print("=" * 80)

@@ -271,7 +271,40 @@ def classify_intent_with_llm(user_prompt: str, history_messages=None, has_file: 
         "}"
     )
 
-    if "OpenAI" in engine_choice and api_key:
+    # Support Groq Cloud API for ultra-fast intent classification
+    import os
+    groq_api_key = api_key if "gsk_" in (api_key or "") else os.environ.get("GROQ_API_KEY", "")
+    if ("Groq" in engine_choice or groq_api_key) and groq_api_key:
+        try:
+            import openai
+            groq_m = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+            groq_client = openai.OpenAI(
+                api_key=groq_api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+            llm_msgs = [{"role": "system", "content": system_prompt}]
+            if history_messages:
+                for m in history_messages[-4:]:
+                    if m.get("role") in ["user", "assistant"]:
+                        c = m.get("content") or (m.get("answer", {}).get("content") if isinstance(m.get("answer"), dict) else "")
+                        if c:
+                            llm_msgs.append({"role": m["role"], "content": str(c)[:300]})
+            llm_msgs.append({"role": "user", "content": f"User Prompt: {user_prompt}\nAttached File: {has_file}\nAttached Image: {has_image}"})
+
+            resp = groq_client.chat.completions.create(
+                model=groq_m,
+                messages=llm_msgs,
+                temperature=0.0,
+                response_format={"type": "json_object"},
+                timeout=5.0
+            )
+            data = json.loads(resp.choices[0].message.content.strip())
+            if "intent" in data and "action" in data:
+                return data
+        except Exception:
+            pass
+
+    if "OpenAI" in engine_choice and api_key and not api_key.startswith("gsk_"):
         try:
             import openai
             client = openai.OpenAI(api_key=api_key)
