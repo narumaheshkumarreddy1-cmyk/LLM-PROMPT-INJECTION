@@ -284,5 +284,83 @@ print(f"[PASSED] Telemetry audit record contains all required fields: {required_
 print(f"         Audit record: {last_audit}")
 
 print("\n" + "=" * 80)
+print(" 10. AUTHENTIC USER REQUEST & IMAGE PROMPT PRESERVATION VERIFICATION")
+print("=" * 80)
+
+from app import extract_subject_and_build_image_prompt
+
+subject_test_cases = [
+    ("now generate 30 day python learning as image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Generate a 30 day Python learning plan as an image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Generate a red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Create an image of a blue bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Generate a sunset beach", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Generate a 30-day Python learning roadmap", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Give me a prompt for a Python learning roadmap", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+]
+
+for prompt, exp_intent, exp_action in subject_test_cases:
+    r = resolve_semantic_routing(prompt)
+    assert r["intent"] == exp_intent, f"Failed for '{prompt}': expected {exp_intent}, got {r['intent']}"
+    assert r["action"] == exp_action, f"Failed action for '{prompt}': expected {exp_action}, got {r['action']}"
+    print(f"[PASSED] Intent routing: \"{prompt}\" -> {r['intent']} ({r['action']})")
+
+    if exp_intent == INTENT_IMAGE_GENERATION:
+        subj, ep = extract_subject_and_build_image_prompt(prompt)
+        print(f"         Extracted Subject: \"{subj}\"")
+        print(f"         Enhanced Prompt:   \"{ep}\"")
+        
+        # Invariant checks:
+        if "python" in prompt.lower() and ("learning" in prompt.lower() or "roadmap" in prompt.lower() or "plan" in prompt.lower()):
+            assert "snake" not in ep.lower(), "Python learning request must NEVER generate a snake prompt!"
+            assert "reptile" not in ep.lower(), "Python learning request must NEVER generate a reptile prompt!"
+            assert "infographic" in ep.lower() or "roadmap" in ep.lower(), "Must specify infographic/roadmap!"
+            assert "programming" in ep.lower() or "python" in ep.lower(), "Must specify programming language!"
+        elif "sports car" in prompt.lower():
+            assert "sports car" in ep.lower(), "Prompt must contain sports car!"
+        elif "blue bus" in prompt.lower():
+            assert "blue bus" in ep.lower(), "Prompt must contain blue bus!"
+        elif "sunset beach" in prompt.lower():
+            assert "sunset beach" in ep.lower(), "Prompt must contain sunset beach!"
+
+# Test execution pipeline and audit fields: original_user_prompt & image_generation_prompt
+print("\n" + "-" * 80)
+print(" VERIFYING original_user_prompt & image_generation_prompt IN EXECUTION")
+print("-" * 80)
+
+audit_test_rec = {"action": "ALLOW", "risk_score": 0.0, "reason": "Test prompt"}
+st.session_state.audit_history = [audit_test_rec]
+ans_img = generate_chatbot_answer(
+    "now generate 30 day python learning as image",
+    history_messages=[],
+    engine_choice="Pollinations AI (Free & Instant)",
+    api_key="",
+    security_res=audit_test_rec
+)
+
+assert ans_img.get("type") == "image", f"Expected image output, got {ans_img.get('type')}"
+assert "original_user_prompt" in ans_img, "Missing original_user_prompt in answer!"
+assert "image_generation_prompt" in ans_img, "Missing image_generation_prompt in answer!"
+assert "original_user_prompt" in audit_test_rec, "Missing original_user_prompt in security_res!"
+assert "image_generation_prompt" in audit_test_rec, "Missing image_generation_prompt in security_res!"
+
+print(f"[PASSED] Answer original_user_prompt:    \"{ans_img['original_user_prompt']}\"")
+print(f"[PASSED] Answer image_generation_prompt: \"{ans_img['image_generation_prompt']}\"")
+print(f"[PASSED] Audit record verified with prompt telemetry: {audit_test_rec['image_generation_prompt']}")
+
+# Verify PROMPT_WRITING returns text prompt and does not generate image
+pw_rec = {"action": "ALLOW", "risk_score": 0.0, "reason": "Prompt writing test"}
+ans_pw_roadmap = generate_chatbot_answer(
+    "Give me a prompt for a Python learning roadmap",
+    history_messages=[],
+    engine_choice="Pollinations AI (Free & Instant)",
+    api_key="",
+    security_res=pw_rec
+)
+assert ans_pw_roadmap.get("type") == "text", "PROMPT_WRITING must return text, not image!"
+assert "image" not in ans_pw_roadmap.get("type", ""), "PROMPT_WRITING must not return image!"
+print("[PASSED] 'Give me a prompt for a Python learning roadmap' returned prompt text and did NOT generate an image.")
+
+print("\n" + "=" * 80)
 print(" [SUCCESS] ALL TEST CASES PASSED PERFECTLY!")
 print("=" * 80)

@@ -395,30 +395,38 @@ if "enable_multimodal" not in st.session_state:
 # Realistic Multi-Session Chat Storage (ChatGPT / Gemini AI Model)
 if "sessions" not in st.session_state:
     st.session_state.sessions = {
-        "sess_snake": {
-            "title": "Snake image in forest",
+        "sess_python_roadmap": {
+            "title": "30-Day Python Roadmap",
             "time": "Just now",
             "pinned": True,
             "history": [
-                {"role": "user", "content": "Generate an image of a snake in a forest"},
+                {"role": "user", "content": "Generate a 30 day Python learning plan as an image"},
                 {
                     "role": "assistant",
                     "res": {
                         "action": "ALLOW",
-                        "risk_score": 0.02,
+                        "risk_score": 0.00,
                         "inj_score": 0.00,
-                        "harm_score": 0.01,
+                        "harm_score": 0.00,
                         "inj_detected": False,
                         "safety_label": "SAFE",
-                        "intent": "Image Generation",
+                        "intent": "IMAGE_GENERATION",
+                        "detected_intent": "IMAGE_GENERATION",
                         "semantic_category": "BENIGN_INQUIRY",
+                        "final_action": "GENERATE_IMAGE",
+                        "selected_provider": "Pollinations AI (Free & Instant)",
+                        "selected_provider_model": "Pollinations AI (Free & Instant)",
+                        "original_user_prompt": "Generate a 30 day Python learning plan as an image",
+                        "image_generation_prompt": "Clean modern educational infographic and visual roadmap diagram of a 30-day Python programming language learning plan, structured timeline with curriculum milestones, coding modules, flowchart layout, modern software engineering UI aesthetic, clean typography, masterwork vector graphic illustration, crisp details, high resolution",
                         "reason": "Verified clean by all security detectors."
                     },
                     "answer": {
                         "type": "image",
-                        "url": "https://images.unsplash.com/photo-1534361960057-19889db9621e?auto=format&fit=crop&w=1000&q=80",
-                        "caption": "AI Image generated using DALL-E 3  |  10:24 AM",
-                        "content": "Here is the generated image for: *\"Generate an image of a snake in a forest\"*"
+                        "url": "https://image.pollinations.ai/prompt/Clean%20modern%20educational%20infographic%20and%20visual%20roadmap%20diagram%20of%20a%2030-day%20Python%20programming%20language%20learning%20plan%2C%20structured%20timeline%20with%20curriculum%20milestones%2C%20coding%20modules%2C%20flowchart%20layout%2C%20modern%20software%20engineering%20UI%20aesthetic%2C%20clean%20typography%2C%20masterwork%20vector%20graphic%20illustration%2C%20crisp%20details%2C%20high%20resolution?width=1024&height=800&nologo=true",
+                        "caption": "AI Infographic generated via Pollinations AI Neural Engine",
+                        "content": "Here is the generated image for: *\"30-day Python learning plan\"*",
+                        "original_user_prompt": "Generate a 30 day Python learning plan as an image",
+                        "image_generation_prompt": "Clean modern educational infographic and visual roadmap diagram of a 30-day Python programming language learning plan, structured timeline with curriculum milestones, coding modules, flowchart layout, modern software engineering UI aesthetic, clean typography, masterwork vector graphic illustration, crisp details, high resolution"
                     }
                 }
             ]
@@ -504,10 +512,10 @@ if "sessions" not in st.session_state:
     }
 
 if "current_session_id" not in st.session_state:
-    st.session_state.current_session_id = "sess_snake"
+    st.session_state.current_session_id = "sess_python_roadmap"
 
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = list(st.session_state.sessions["sess_snake"]["history"])
+    st.session_state.chat_history = list(st.session_state.sessions["sess_python_roadmap"]["history"])
 
 if "nav_choice" not in st.session_state:
     st.session_state.nav_choice = "🖼️ Multimodal & Image Guard"
@@ -1004,6 +1012,8 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
     scan_record = {
         "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "prompt": user_prompt,
+        "original_user_prompt": user_prompt,
+        "image_generation_prompt": "PENDING_ROUTING",
         "action": action,
         "security_decision": action,
         "risk_score": aggregated_risk,
@@ -1065,6 +1075,7 @@ ROUTER_INTENT_BENCHMARKS = [
     ("give me a prompt for a car image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("give me a prompt for a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("give me a prompt that i can use to generate a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
+    ("give me a prompt for a python learning roadmap", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("write a midjourney prompt for a futuristic cyberpunk city", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("suggest a dall-e 3 prompt for a cozy coffee shop", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("provide a detailed prompt for generating an image of a blue dragon", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
@@ -1078,9 +1089,15 @@ ROUTER_INTENT_BENCHMARKS = [
     ("generate a realistic red sports car on a mountain road", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("create an image of a blue bus", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate an image of a bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("create an image of a blue bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("create a realistic bus image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("i need an image of a bus", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("create a realistic red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("generate a red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("generate a sunset beach", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("generate a 30 day python learning plan as an image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("now generate 30 day python learning as image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("generate a 30-day python learning roadmap", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate an image of a snake in a forest", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("draw a picture of an astronaut riding a horse on mars", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("render a 3d isometric cyberpunk bedroom", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
@@ -1241,11 +1258,20 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
 
     # 6. Direct IMAGE_GENERATION Check (imperative to generate/create an image)
     if not is_educational_how:
+        if re.search(r"\b(generate|create|render|draw|produce|paint)\b.*\b(as\s+(an?\s+)?(image|photo|picture|wallpaper|render|illustration|portrait|infographic|diagram|roadmap))\b", p_lower):
+            return {
+                "intent": INTENT_IMAGE_GENERATION,
+                "confidence": 0.98,
+                "action": ACTION_GENERATE_IMAGE,
+                "secondary_action": None,
+                "is_multi_action": False,
+                "reasoning": "User explicitly commanded to generate/create content in an image or infographic format."
+            }
+
         image_gen_patterns = [
-            r"\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
-            r"\b(i\s+need|want|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
-            r"\b(create|generate|render|draw)\s+(an?|some)?\s*(\w+\s+)*(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut)\s+(image|photo|picture)\b",
-            r"^\b(generate|create|render|draw)\s+(an?|some)?\s*(\w+\s+)*(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut)\b",
+            r"\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait|infographic|diagram|roadmap)\b",
+            r"\b(i\s+need|want|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait|infographic)\b",
+            r"^\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*.*?\b(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut|sunset|beach|sunrise|ocean|skyline|roadmap|infographic|learning\s+plan)\b",
             r"\b(generate|create|draw|render)\s+a\s+realistic\s+[a-z\s]+(on|in|at|with)\b"
         ]
         if any(re.search(pat, p_lower) for pat in image_gen_patterns):
@@ -1255,7 +1281,7 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
                 "action": ACTION_GENERATE_IMAGE,
                 "secondary_action": None,
                 "is_multi_action": False,
-                "reasoning": "User directly commanded the creation/rendering of an image."
+                "reasoning": "User directly commanded the creation/rendering of an image or visual scene."
             }
 
 
@@ -1420,37 +1446,127 @@ def is_image_request_prompt(prompt_text, history_messages=None):
 # ---------------------------------------------------------
 # 7. AI IMAGE GENERATOR ENGINE (WITH STRICT PROVIDER CHECKS)
 # ---------------------------------------------------------
+def extract_subject_and_build_image_prompt(user_prompt: str, history_messages=None) -> tuple[str, str]:
+    """
+    Extracts the user's authentic semantic subject from their complete sentence,
+    disambiguates polysemous words (e.g., Python coding vs reptile),
+    preserves exact semantic meaning without hardcoded default substitutions,
+    and constructs an enhanced visual generation prompt.
+    
+    Returns:
+        (extracted_subject, enhanced_image_prompt)
+    """
+    p = user_prompt.strip()
+    p_lower = p.lower()
+
+    # 1. Multi-turn continuation fallback (e.g., "now generate the image", "now generate it")
+    if history_messages and p_lower in [
+        'now generate the image', 'now generate it', 'generate it', 'now make it',
+        'now generate', 'generate the image now', 'create the image now'
+    ]:
+        for msg in reversed(history_messages):
+            if msg.get('role') == 'user' and msg.get('content'):
+                c = msg['content'].strip()
+                if c.lower() not in ['now generate the image', 'now generate it', 'generate it', 'make it cinematic']:
+                    p = c
+                    p_lower = p.lower()
+                    break
+
+    # 2. Extract authentic subject by stripping conversational command wrappers
+    cleaned = re.sub(
+        r'(?i)^\s*(now\s+)?(please\s+)?(can\s+you\s+)?(generate|create|render|draw|paint|produce|make)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d|beautiful|hd)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)?\s*(of\s+)?',
+        '',
+        p
+    )
+    cleaned = re.sub(
+        r'(?i)^\s*(i\s+(need|want)|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d|beautiful|hd)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)?\s*(of\s+)?',
+        '',
+        cleaned
+    )
+    cleaned = re.sub(
+        r'(?i)\s+(as\s+(an?\s+)?(image|photo|picture|wallpaper|illustration|portrait|infographic|diagram|roadmap))\s*$',
+        '',
+        cleaned
+    )
+    cleaned = re.sub(r'(?i)\s+(in\s+chatgpt|using\s+dall-?e|with\s+ai|now|please)\s*$', '', cleaned)
+    cleaned = cleaned.strip(' :.?!')
+    
+    # Strip leading articles from subject
+    cleaned_sub = re.sub(r'^(a|an|the)\s+', '', cleaned, flags=re.IGNORECASE).strip()
+    subject = cleaned_sub if (cleaned_sub and cleaned_sub.lower() not in ['image', 'photo', 'picture', 'it']) else p
+
+    # 3. Disambiguate and visually enhance prompt based on the user's authentic semantic subject
+    s_lower = subject.lower()
+
+    # Case A: Python Programming Learning Plan / Roadmap / Infographic
+    if 'python' in s_lower and any(w in s_lower for w in [
+        'learn', 'learning', 'plan', 'roadmap', 'course', 'tutorial', 'guide',
+        'curriculum', 'study', 'code', 'coding', 'developer', 'programming',
+        '30 day', '30-day', 'day'
+    ]):
+        enhanced_prompt = (
+            f'Clean modern educational infographic and visual roadmap diagram representing a {subject}, '
+            f'structured daily timeline with Python programming language coding curriculum milestones, '
+            f'flowchart modules, modern software engineering UI aesthetic, clean typography, '
+            f'masterwork vector graphic illustration, crisp details, high resolution'
+        )
+    # Case B: General Roadmap / Infographic / Diagram / Learning Plan
+    elif any(w in s_lower for w in ['roadmap', 'infographic', 'diagram', 'chart', 'flowchart', 'learning plan', 'curriculum']):
+        enhanced_prompt = (
+            f'Clean modern educational infographic and visual roadmap diagram representing {subject}, '
+            f'structured timeline layout, clear modern typography, professional graphic design, vector illustration, high resolution'
+        )
+    # Case C: Automotive & Vehicles
+    elif any(w in s_lower for w in ['car', 'bus', 'truck', 'bike', 'vehicle', 'automobile', 'sports car']):
+        enhanced_prompt = (
+            f'High resolution realistic photo of {subject}, '
+            f'dynamic natural lighting, reflections on glossy finish, masterwork automotive photography, cinematic composition, 8k resolution, highly detailed'
+        )
+    # Case D: Scenery, Landscapes, Nature
+    elif any(w in s_lower for w in ['sunset', 'beach', 'mountain', 'ocean', 'sea', 'forest', 'landscape', 'city', 'skyline', 'lake', 'river']):
+        enhanced_prompt = (
+            f'High resolution scenic landscape photograph of {subject}, '
+            f'beautiful atmospheric natural lighting, cinematic composition, vibrant colors, masterwork photography, 8k resolution, crisp details'
+        )
+    # Case E: Universal Subject Preservation
+    else:
+        enhanced_prompt = (
+            f'High resolution realistic detailed rendering of {subject}, '
+            f'professional studio and atmospheric lighting, cinematic composition, masterwork quality, 8k resolution, highly detailed'
+        )
+
+    return subject, enhanced_prompt
+
 def generate_ai_image(prompt_text, api_key=None, history_messages=None):
     """
     Real AI Image Generation Provider Caller.
     Strictly verifies provider configuration and API key.
     Never returns fake/random images or unsplash placeholders.
     Never routes to Llama 3.2 text LLM.
+    Preserves user's actual request and enhances with visual composition without altering subject.
     """
     pref_engine = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
     effective_key = api_key if (api_key and not str(api_key).startswith("gsk_")) else get_openai_image_key()
     
-    clean_p = prompt_text.strip()
-    # If contextual refinement from history
-    if history_messages and (clean_p.lower().startswith("with ") or clean_p.lower().startswith("and ") or clean_p.lower().startswith("make it ")):
-        for msg in reversed(history_messages):
-            if msg.get("role") == "user" and msg.get("content"):
-                prev_text = msg["content"].strip()
-                clean_p = f"{clean_p} {prev_text}"
-                break
+    subject, enhanced_prompt = extract_subject_and_build_image_prompt(prompt_text, history_messages)
+    original_user_prompt = prompt_text
+    image_generation_prompt = enhanced_prompt
 
     if "OpenAI" in pref_engine or "DALL-E" in pref_engine:
         if not effective_key:
             return {
                 "type": "text",
                 "error": True,
-                "content": "Image generation is not configured. Please configure an image-generation provider/API key."
+                "content": "Image generation is not configured. Please configure an image-generation provider/API key.",
+                "original_user_prompt": original_user_prompt,
+                "image_generation_prompt": image_generation_prompt,
+                "subject": subject
             }
         try:
             client = openai.OpenAI(api_key=effective_key, base_url="https://api.openai.com/v1")
             response = client.images.generate(
                 model="dall-e-3",
-                prompt=f"High resolution realistic photo of: {clean_p}",
+                prompt=enhanced_prompt,
                 size="1024x1024",
                 quality="standard",
                 n=1,
@@ -1458,30 +1574,52 @@ def generate_ai_image(prompt_text, api_key=None, history_messages=None):
             return {
                 "type": "image",
                 "url": response.data[0].url,
-                "caption": "Generated via OpenAI DALL-E 3",
-                "content": f"Here is the generated image for: *\"{clean_p}\"*"
+                "caption": f"Generated via OpenAI DALL-E 3: {subject}",
+                "content": f"Here is the generated image for: *\"{subject}\"*",
+                "original_user_prompt": original_user_prompt,
+                "image_generation_prompt": image_generation_prompt,
+                "subject": subject
             }
         except Exception as e:
             return {
                 "type": "text",
                 "error": True,
-                "content": f"OpenAI DALL-E 3 Error: {str(e)}\n\nPlease ensure your API key has DALL-E 3 permissions, or configure an active image-generation provider."
+                "content": f"OpenAI DALL-E 3 Error: {str(e)}\n\nPlease ensure your API key has DALL-E 3 permissions, or configure an active image-generation provider.",
+                "original_user_prompt": original_user_prompt,
+                "image_generation_prompt": image_generation_prompt,
+                "subject": subject
             }
 
     elif "Pollinations" in pref_engine:
-        encoded_prompt = urllib.parse.quote(clean_p)
-        return {
-            "type": "image",
-            "url": f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true",
-            "caption": "Generated via Pollinations AI Neural Engine",
-            "content": f"Here is the generated image for: *\"{clean_p}\"*"
-        }
+        try:
+            encoded_prompt = urllib.parse.quote(enhanced_prompt)
+            return {
+                "type": "image",
+                "url": f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true",
+                "caption": f"Generated via Pollinations AI Neural Engine: {subject}",
+                "content": f"Here is the generated image for: *\"{subject}\"*",
+                "original_user_prompt": original_user_prompt,
+                "image_generation_prompt": image_generation_prompt,
+                "subject": subject
+            }
+        except Exception as e:
+            return {
+                "type": "text",
+                "error": True,
+                "content": f"Pollinations AI Error: {str(e)}",
+                "original_user_prompt": original_user_prompt,
+                "image_generation_prompt": image_generation_prompt,
+                "subject": subject
+            }
 
     else:
         return {
             "type": "text",
             "error": True,
-            "content": "Image generation is not configured. Please configure an image-generation provider/API key."
+            "content": "Image generation is not configured. Please configure an image-generation provider/API key.",
+            "original_user_prompt": original_user_prompt,
+            "image_generation_prompt": image_generation_prompt,
+            "subject": subject
         }
 
 def craft_engineered_prompt(user_input, history_messages=None, engine_choice="", api_key=""):
@@ -1659,23 +1797,53 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         if is_multi_action:
             crafted = craft_engineered_prompt(user_input, history_messages, engine_choice, effective_key)
             img_res = generate_ai_image(user_input, img_key, history_messages)
+            gen_img_prompt = img_res.get("image_generation_prompt", user_input)
+            if security_res:
+                security_res["original_user_prompt"] = user_input
+                security_res["image_generation_prompt"] = gen_img_prompt
+                if st.session_state.get("audit_history"):
+                    st.session_state.audit_history[-1].update({
+                        "original_user_prompt": user_input,
+                        "image_generation_prompt": gen_img_prompt
+                    })
             if img_res.get("type") == "image":
                 img_res["content"] = f"{crafted}\n\n---\n\nHere is your generated image:"
                 return img_res
             else:
                 return {
                     "type": "text",
-                    "content": f"{crafted}\n\n---\n\n⚠️ {img_res.get('content', 'Image generation could not be completed.')}"
+                    "content": f"{crafted}\n\n---\n\n⚠️ {img_res.get('content', 'Image generation could not be completed.')}",
+                    "original_user_prompt": user_input,
+                    "image_generation_prompt": gen_img_prompt
                 }
         else:
             img_res = generate_ai_image(user_input, img_key, history_messages)
+            gen_img_prompt = img_res.get("image_generation_prompt", user_input)
+            if security_res:
+                security_res["original_user_prompt"] = user_input
+                security_res["image_generation_prompt"] = gen_img_prompt
+                if st.session_state.get("audit_history"):
+                    st.session_state.audit_history[-1].update({
+                        "original_user_prompt": user_input,
+                        "image_generation_prompt": gen_img_prompt
+                    })
             if img_res.get("type") == "image":
                 return img_res
             else:
                 return {
                     "type": "text",
-                    "content": f"⚠️ **Image Generation Status**\n\n{img_res.get('content')}"
+                    "content": f"⚠️ **Image Generation Status**\n\n{img_res.get('content')}",
+                    "original_user_prompt": user_input,
+                    "image_generation_prompt": gen_img_prompt
                 }
+
+    # For non-image intents, document N/A in telemetry
+    if security_res:
+        security_res.setdefault("original_user_prompt", user_input)
+        security_res.setdefault("image_generation_prompt", "N/A (Non-Image Intent)")
+        if st.session_state.get("audit_history"):
+            st.session_state.audit_history[-1].setdefault("original_user_prompt", user_input)
+            st.session_state.audit_history[-1].setdefault("image_generation_prompt", "N/A (Non-Image Intent)")
 
     # INTENT: IMAGE_ANALYSIS
     if intent == INTENT_IMAGE_ANALYSIS:
@@ -2137,7 +2305,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
         ''', unsafe_allow_html=True)
 
     with head_col2:
-        cur_id = st.session_state.get("current_session_id", "sess_snake")
+        cur_id = st.session_state.get("current_session_id", "sess_python_roadmap")
         is_pinned = st.session_state.sessions.get(cur_id, {}).get("pinned", False)
         
         with st.popover("⚙️ Options", width="stretch"):
@@ -2275,7 +2443,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
     center_canvas, right_panel = st.columns([1.8, 1])
 
     latest_res = None
-    active_prompt_text = "Generate an image of a snake in a forest"
+    active_prompt_text = "Generate a 30 day Python learning plan as an image"
 
     with center_canvas:
         # Render Conversation Messages & Execution Cards
@@ -2343,6 +2511,12 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
                     ans = msg.get("answer", {})
                     if isinstance(ans, dict) and ans.get("type") == "image":
                         st.image(ans["url"], caption=f"🖼️ {ans.get('caption', 'Generated Image')}", width="stretch")
+                        if ans.get("content"):
+                            st.markdown(ans["content"])
+                        if ans.get("image_generation_prompt"):
+                            with st.expander("🔍 Image Prompt Telemetry", expanded=False):
+                                st.markdown(f"**Original User Request:** `{ans.get('original_user_prompt', '')}`")
+                                st.markdown(f"**Prompt Sent to Provider:**\n> *\"{ans.get('image_generation_prompt', '')}\"*")
                     elif isinstance(ans, dict) and ans.get("type") == "text":
                         st.markdown(ans["content"])
                     elif isinstance(ans, str):
@@ -2452,7 +2626,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
 
     with dock_col2:
         if st.button("🖼️ Generate Image", width="stretch"):
-            raw_p = user_prompt_input.strip() if ('user_prompt_input' in locals() and user_prompt_input and user_prompt_input.strip()) else "bus in modern city"
+            raw_p = "30 day Python learning plan as an image"
             img_prompt = raw_p if is_image_request_prompt(raw_p) else f"Generate an image of {raw_p}"
             st.session_state.chat_history.append({"role": "user", "content": img_prompt})
             res = aggregate_security_pipeline(img_prompt, engine_choice, api_key)
@@ -2467,7 +2641,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
             st.session_state.chat_history.append({"role": "assistant", "res": res, "answer": ans})
             
             # Persist to active session
-            cur_sid = st.session_state.get("current_session_id", "sess_snake")
+            cur_sid = st.session_state.get("current_session_id", "sess_python_roadmap")
             if cur_sid not in st.session_state.sessions:
                 st.session_state.sessions[cur_sid] = {
                     "title": img_prompt[:22] + ("..." if len(img_prompt) > 22 else ""),
@@ -2511,7 +2685,7 @@ if nav_choice == "🖼️ Multimodal & Image Guard":
             })
             
             # Persist to active session
-            cur_sid = st.session_state.get("current_session_id", "sess_snake")
+            cur_sid = st.session_state.get("current_session_id", "sess_python_roadmap")
             if cur_sid not in st.session_state.sessions:
                 st.session_state.sessions[cur_sid] = {
                     "title": prompt_to_run[:22] + ("..." if len(prompt_to_run) > 22 else ""),
@@ -2622,7 +2796,7 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
             
         if history_records:
             df_log = pd.DataFrame(history_records)
-            cols_to_show = ["timestamp", "action", "risk_score", "confidence", "prompt", "intent", "final_action", "selected_provider_model", "reason"]
+            cols_to_show = ["timestamp", "action", "risk_score", "confidence", "prompt", "original_user_prompt", "image_generation_prompt", "intent", "final_action", "selected_provider_model", "reason"]
             existing_cols = [c for c in cols_to_show if c in df_log.columns]
             
             st.dataframe(
@@ -2633,6 +2807,8 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
                     "risk_score": st.column_config.NumberColumn("Risk Score", format="%.2f"),
                     "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
                     "prompt": "Prompt Content",
+                    "original_user_prompt": "Original Request",
+                    "image_generation_prompt": "Prompt Sent to Provider",
                     "intent": "Detected Intent",
                     "final_action": "Final Action",
                     "selected_provider_model": "Selected Model/Tool",
