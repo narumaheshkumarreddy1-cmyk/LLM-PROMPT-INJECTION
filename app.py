@@ -596,159 +596,13 @@ if "enable_multimodal" not in st.session_state:
 
 # Realistic Multi-Session Chat Storage (ChatGPT / Gemini AI Model)
 if "sessions" not in st.session_state:
-    st.session_state.sessions = {
-        "sess_welcome": {
-            "title": "New Chat",
-            "time": "Just now",
-            "pinned": True,
-            "history": [
-                {
-                    "role": "assistant",
-                    "res": {
-                        "action": "ALLOW",
-                        "risk_score": 0.00,
-                        "inj_score": 0.00,
-                        "harm_score": 0.00,
-                        "inj_detected": False,
-                        "safety_label": "SAFE",
-                        "intent": "GENERAL_CHAT",
-                        "detected_intent": "GENERAL_CHAT",
-                        "semantic_category": "BENIGN_INQUIRY",
-                        "final_action": "CHAT",
-                        "selected_provider": "Groq Cloud API (Ultra-Fast LLM)",
-                        "selected_provider_model": f"Groq/{_init_groq_m or 'openai/gpt-oss-120b'}",
-                        "original_user_prompt": "N/A (System Welcome)",
-                        "image_generation_prompt": "N/A (Non-Image Intent)",
-                        "reason": "Gateway active. Security detectors online."
-                    },
-                    "answer": {
-                        "type": "text",
-                        "content": "👋 **Hello! How can I help you today?**\n\nI am your **AI Assistant & Security Gateway**, powered by ultra-fast Groq text intelligence and multimodal protection.\n\nHere is what you can ask me to do right away:\n- 💬 **Ask any question:** *\"Explain artificial intelligence\"*, *\"What is prompt injection?\"*\n- 🎨 **Generate Prompts:** *\"Give me a prompt for a realistic car image\"*\n- 🖼️ **Generate Images:** *\"Generate an image of a bus in a modern city\"* or *\"Generate a 30-day Python learning plan as an image\"*\n- 💻 **Write Code:** *\"Write Python code to check if a number is prime\"*\n- 📊 **Mermaid Diagrams:** *\"Give me Mermaid code for a 30-day Python learning plan\"*\n\nType your message in the chat box below to begin!"
-                    }
-                }
-            ]
-        },
-        "sess_python_roadmap": {
-            "title": "30-Day Python Roadmap",
-            "time": "5 min ago",
-            "pinned": False,
-            "history": [
-                {"role": "user", "content": "Generate a 30 day Python learning plan as an image"},
-                {
-                    "role": "assistant",
-                    "res": {
-                        "action": "ALLOW",
-                        "risk_score": 0.00,
-                        "inj_score": 0.00,
-                        "harm_score": 0.00,
-                        "inj_detected": False,
-                        "safety_label": "SAFE",
-                        "intent": "IMAGE_GENERATION",
-                        "detected_intent": "IMAGE_GENERATION",
-                        "semantic_category": "BENIGN_INQUIRY",
-                        "final_action": "GENERATE_IMAGE",
-                        "selected_provider": "Pollinations AI (Free & Instant)",
-                        "selected_provider_model": "Pollinations AI (Free & Instant)",
-                        "original_user_prompt": "Generate a 30 day Python learning plan as an image",
-                        "image_generation_prompt": "Clean modern educational infographic and visual roadmap diagram of a 30-day Python programming language learning plan, structured timeline with curriculum milestones, coding modules, flowchart layout, modern software engineering UI aesthetic, clean typography, masterwork vector graphic illustration, crisp details, high resolution",
-                        "reason": "Verified clean by all security detectors."
-                    },
-                    "answer": {
-                        "type": "image",
-                        "url": "https://image.pollinations.ai/prompt/Clean%20modern%20educational%20infographic%20and%20visual%20roadmap%20diagram%20of%20a%2030-day%20Python%20programming%20language%20learning%20plan%2C%20structured%20timeline%20with%20curriculum%20milestones%2C%20coding%20modules%2C%20flowchart%20layout%2C%20modern%20software%20engineering%20UI%20aesthetic%2C%20clean%20typography%2C%20masterwork%20vector%20graphic%20illustration%2C%20crisp%20details%2C%20high%20resolution?width=1024&height=800&nologo=true",
-                        "caption": "AI Infographic generated via Pollinations AI Neural Engine",
-                        "content": "Here is the generated image for: *\"30-day Python learning plan\"*",
-                        "original_user_prompt": "Generate a 30 day Python learning plan as an image",
-                        "image_generation_prompt": "Clean modern educational infographic and visual roadmap diagram of a 30-day Python programming language learning plan, structured timeline with curriculum milestones, coding modules, flowchart layout, modern software engineering UI aesthetic, clean typography, masterwork vector graphic illustration, crisp details, high resolution"
-                    }
-                }
-            ]
-        },
-        "sess_injection": {
-            "title": "Explain prompt injection",
-            "time": "5 min ago",
-            "pinned": True,
-            "history": [
-                {"role": "user", "content": "Explain prompt injection attacks and defense strategies"},
-                {
-                    "role": "assistant",
-                    "res": {
-                        "action": "ALLOW",
-                        "risk_score": 0.00,
-                        "inj_score": 0.00,
-                        "harm_score": 0.00,
-                        "inj_detected": False,
-                        "safety_label": "SAFE",
-                        "intent": "Educational Security Inquiry",
-                        "semantic_category": "EDUCATIONAL / CYBER_DEFENSE",
-                        "reason": "Verified clean by all security detectors."
-                    },
-                    "answer": {
-                        "type": "text",
-                        "content": "### 🛡️ Understanding Prompt Injection Attacks\n\n**Prompt Injection** is a technique where an adversary inserts malicious instructions into a prompt to override the LLM's system guardrails.\n\n#### Key Mitigation Strategies:\n1. **Dual-Model Gateway**: Pass input through an independent detector before execution.\n2. **Delimiter Encapsulation**: Enclose user prompts within strict delimiters (e.g. `\"\"\"` or `<input>`).\n3. **Post-Generation Filtering**: Scan the generated output for private tokens or system prompt leakage."
-                    }
-                }
-            ]
-        },
-        "sess_firewall": {
-            "title": "Firewall architecture",
-            "time": "20 min ago",
-            "pinned": False,
-            "history": [
-                {"role": "user", "content": "Explain cyber security firewall architecture"},
-                {
-                    "role": "assistant",
-                    "res": {
-                        "action": "ALLOW",
-                        "risk_score": 0.00,
-                        "inj_score": 0.00,
-                        "harm_score": 0.00,
-                        "inj_detected": False,
-                        "safety_label": "SAFE",
-                        "intent": "Defensive Security Posture",
-                        "semantic_category": "DEFENSIVE_SECURITY",
-                        "reason": "Verified clean by all security detectors."
-                    },
-                    "answer": {
-                        "type": "text",
-                        "content": "### 🛡️ Cyber Security Firewall Architecture\n\nA **Firewall** acts as the primary barrier between private networks and untrusted traffic, enforcing stateful packet inspection and application-layer proxy filtering."
-                    }
-                }
-            ]
-        },
-        "sess_python": {
-            "title": "Python syntax analysis",
-            "time": "1 hour ago",
-            "pinned": False,
-            "history": [
-                {"role": "user", "content": "Explain python syntax and data structures"},
-                {
-                    "role": "assistant",
-                    "res": {
-                        "action": "ALLOW",
-                        "risk_score": 0.00,
-                        "inj_score": 0.00,
-                        "harm_score": 0.00,
-                        "inj_detected": False,
-                        "safety_label": "SAFE",
-                        "intent": "Programming Language Inquiry",
-                        "semantic_category": "BENIGN_DEVELOPMENT",
-                        "reason": "Verified clean by all security detectors."
-                    },
-                    "answer": {
-                        "type": "text",
-                        "content": "### 🐍 Python Core Data Structures\n\n- **List**: Mutable sequence `[1, 2, 3]`\n- **Dictionary**: Hash map `{'key': 'value'}`\n- **Tuple**: Immutable sequence `(1, 2)`\n- **Set**: Unordered unique elements `{1, 2, 3}`"
-                    }
-                }
-            ]
-        }
-    }
+    st.session_state.sessions = {}
 
 if "current_session_id" not in st.session_state:
-    st.session_state.current_session_id = "sess_welcome"
+    st.session_state.current_session_id = f"sess_{int(time.time())}"
 
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = list(st.session_state.sessions["sess_welcome"]["history"])
+    st.session_state.chat_history = []
 
 if "nav_choice" not in st.session_state:
     st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
@@ -2473,7 +2327,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
         ''', unsafe_allow_html=True)
 
     with head_col2:
-        cur_id = st.session_state.get("current_session_id", "sess_welcome")
+        cur_id = st.session_state.get("current_session_id") or f"sess_{int(time.time())}"
         is_pinned = st.session_state.sessions.get(cur_id, {}).get("pinned", False)
         
         with st.popover("⚙️ Options", width="stretch"):
@@ -2824,7 +2678,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             })
             
             # Persist to active session
-            cur_sid = st.session_state.get("current_session_id", "sess_welcome")
+            cur_sid = st.session_state.get("current_session_id") or f"sess_{int(time.time())}"
             if cur_sid not in st.session_state.sessions:
                 st.session_state.sessions[cur_sid] = {
                     "title": prompt_to_run[:22] + ("..." if len(prompt_to_run) > 22 else ""),
@@ -2967,11 +2821,14 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
     cat_col1, cat_col2 = st.columns(2)
     with cat_col1:
         st.markdown("#### Decision Breakdown")
-        dec_data = pd.DataFrame({
-            "Decision": ["ALLOW", "FLAG", "BLOCK"],
-            "Count": [allowed, flagged, blocked]
-        })
-        st.bar_chart(dec_data.set_index("Decision"))
+        if tot > 0:
+            dec_data = pd.DataFrame({
+                "Decision": ["ALLOW", "FLAG", "BLOCK"],
+                "Count": [allowed, flagged, blocked]
+            })
+            st.bar_chart(dec_data.set_index("Decision"))
+        else:
+            st.info("No scan telemetry recorded yet. Charts will populate once security scans are executed.")
         
     with cat_col2:
         st.markdown("#### Operational Security Thresholds")
