@@ -656,6 +656,15 @@ def get_groq_config():
             groq_key = st.secrets.get("GROQ_API_KEY", "")
         except Exception:
             pass
+        if not groq_key:
+            # Check if placed inside a TOML table/section
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict) and "GROQ_API_KEY" in v:
+                        groq_key = v["GROQ_API_KEY"]
+                        break
+            except Exception:
+                pass
 
     groq_model = ""
     try:
@@ -669,6 +678,14 @@ def get_groq_config():
             groq_model = st.secrets.get("GROQ_MODEL", "")
         except Exception:
             pass
+        if not groq_model:
+            try:
+                for k, v in st.secrets.items():
+                    if isinstance(v, dict) and "GROQ_MODEL" in v:
+                        groq_model = v["GROQ_MODEL"]
+                        break
+            except Exception:
+                pass
     if not groq_model:
         groq_model = "openai/gpt-oss-120b"
 
@@ -2705,13 +2722,13 @@ elif nav_choice == "⚙️ Engine Settings":
         st.subheader("⚡ Groq API Key & Model Configuration")
         st.write("Enter your Groq API key to power ultra-fast LLM text generation, intent classification, prompt engineering, and code generation.")
         
+        current_cfg_key, current_cfg_model = get_groq_config()
         input_groq_key = st.text_input(
             "Groq API Key:",
-            value=st.session_state.get("custom_groq_api_key", ""),
+            value=st.session_state.get("custom_groq_api_key") or current_cfg_key or "",
             type="password",
             placeholder="gsk_..."
         )
-        _, current_cfg_model = get_groq_config()
         groq_model_options = [
             "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
