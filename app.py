@@ -369,19 +369,24 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
 
     if groq_key is not None:
         groq_k_str = str(groq_key).strip()
-        existing_secrets["GROQ_API_KEY"] = groq_k_str
-        if "GROQ" not in existing_secrets or not isinstance(existing_secrets["GROQ"], dict):
-            existing_secrets["GROQ"] = {}
-        existing_secrets["GROQ"]["API_KEY"] = groq_k_str
-        if hasattr(st, "secrets"):
+        if groq_k_str.startswith("gsk_") or not groq_k_str:
+            existing_secrets["GROQ_API_KEY"] = groq_k_str
+            if "GROQ" not in existing_secrets or not isinstance(existing_secrets["GROQ"], dict):
+                existing_secrets["GROQ"] = {}
+            existing_secrets["GROQ"]["API_KEY"] = groq_k_str
             try:
-                st.secrets["GROQ_API_KEY"] = groq_k_str
+                os.environ["GROQ_API_KEY"] = groq_k_str
             except Exception:
                 pass
-        try:
-            st.session_state.custom_groq_api_key = groq_k_str
-        except Exception:
-            pass
+            if hasattr(st, "secrets"):
+                try:
+                    st.secrets["GROQ_API_KEY"] = groq_k_str
+                except Exception:
+                    pass
+            try:
+                st.session_state.custom_groq_api_key = groq_k_str
+            except Exception:
+                pass
 
     if groq_model is not None:
         groq_m_str = str(groq_model).strip()
@@ -389,6 +394,10 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
         if "GROQ" not in existing_secrets or not isinstance(existing_secrets["GROQ"], dict):
             existing_secrets["GROQ"] = {}
         existing_secrets["GROQ"]["MODEL"] = groq_m_str
+        try:
+            os.environ["GROQ_MODEL"] = groq_m_str
+        except Exception:
+            pass
         if hasattr(st, "secrets"):
             try:
                 st.secrets["GROQ_MODEL"] = groq_m_str
@@ -401,11 +410,15 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
 
     if openai_key is not None:
         openai_k_str = str(openai_key).strip()
-        if not openai_k_str.startswith("gsk_"):
+        if openai_k_str.startswith("sk-") or not openai_k_str:
             existing_secrets["OPENAI_API_KEY"] = openai_k_str
             if "OPENAI" not in existing_secrets or not isinstance(existing_secrets["OPENAI"], dict):
                 existing_secrets["OPENAI"] = {}
             existing_secrets["OPENAI"]["API_KEY"] = openai_k_str
+            try:
+                os.environ["OPENAI_API_KEY"] = openai_k_str
+            except Exception:
+                pass
             if hasattr(st, "secrets"):
                 try:
                     st.secrets["OPENAI_API_KEY"] = openai_k_str
@@ -416,34 +429,55 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
             except Exception:
                 pass
 
-    os.makedirs(os.path.dirname(secrets_path) or ".", exist_ok=True)
-    with open(secrets_path, "w", encoding="utf-8") as f:
-        toml.dump(existing_secrets, f)
-    return True
+    saved_to_disk = False
+    try:
+        os.makedirs(os.path.dirname(secrets_path) or ".", exist_ok=True)
+        with open(secrets_path, "w", encoding="utf-8") as f:
+            toml.dump(existing_secrets, f)
+        saved_to_disk = True
+    except (OSError, IOError, PermissionError):
+        # Gracefully handle read-only filesystems (such as Streamlit Community Cloud)
+        saved_to_disk = False
+    except Exception:
+        saved_to_disk = False
+
+    return saved_to_disk
 
 def get_groq_config():
     """
     Retrieves Groq API key and model from Streamlit secrets, environment variables, or session state.
     Supports top-level keys as well as [GROQ] table sections.
+    Ensures that any returned Groq key is strictly a valid 'gsk_' key.
     Returns (groq_api_key, groq_model).
     """
+    def _is_gsk(val):
+        return bool(val and isinstance(val, str) and val.strip().startswith("gsk_"))
+
     groq_key = ""
     try:
-        groq_key = st.session_state.get("custom_groq_api_key", "")
+        cand = st.session_state.get("custom_groq_api_key", "")
+        if _is_gsk(cand):
+            groq_key = cand.strip()
     except Exception:
         pass
     if not groq_key:
-        groq_key = os.environ.get("GROQ_API_KEY", "")
+        cand = os.environ.get("GROQ_API_KEY", "")
+        if _is_gsk(cand):
+            groq_key = cand.strip()
     if not groq_key and hasattr(st, "secrets"):
         try:
-            groq_key = st.secrets.get("GROQ_API_KEY", "")
+            cand = st.secrets.get("GROQ_API_KEY", "")
+            if _is_gsk(cand):
+                groq_key = cand.strip()
         except Exception:
             pass
         if not groq_key:
             try:
                 groq_sec = st.secrets.get("GROQ", {})
                 if isinstance(groq_sec, dict):
-                    groq_key = groq_sec.get("API_KEY", "") or groq_sec.get("GROQ_API_KEY", "")
+                    cand = groq_sec.get("API_KEY", "") or groq_sec.get("GROQ_API_KEY", "")
+                    if _is_gsk(cand):
+                        groq_key = cand.strip()
             except Exception:
                 pass
         if not groq_key:
@@ -451,11 +485,9 @@ def get_groq_config():
             try:
                 for k, v in st.secrets.items():
                     if isinstance(v, dict):
-                        if "GROQ_API_KEY" in v:
-                            groq_key = v["GROQ_API_KEY"]
-                            break
-                        elif "API_KEY" in v and "groq" in str(k).lower():
-                            groq_key = v["API_KEY"]
+                        cand = v.get("GROQ_API_KEY", "") or (v.get("API_KEY", "") if "groq" in str(k).lower() else "")
+                        if _is_gsk(cand):
+                            groq_key = cand.strip()
                             break
             except Exception:
                 pass
@@ -463,8 +495,8 @@ def get_groq_config():
             # Check for any secret ending with API_KEY containing groq
             try:
                 for k, v in st.secrets.items():
-                    if "groq" in str(k).lower() and isinstance(v, str) and v.startswith("gsk_"):
-                        groq_key = v
+                    if "groq" in str(k).lower() and _is_gsk(v):
+                        groq_key = v.strip()
                         break
             except Exception:
                 pass
@@ -735,13 +767,15 @@ def get_groq_client(api_key=None):
     """
     Returns an OpenAI-compatible Groq client using base_url='https://api.groq.com/openai/v1'.
     Ensures Groq API key is NEVER mixed with OpenAI keys and never sent to OpenAI endpoints.
+    Strictly requires that Groq API keys begin with 'gsk_'.
     """
     configured_key, _ = get_groq_config()
-    candidate_key = (api_key or configured_key).strip()
-    # Guard against OpenAI key cross-contamination:
-    if candidate_key.startswith("sk-") and not candidate_key.startswith("gsk_"):
+    candidate_key = (api_key or "").strip()
+    if candidate_key and not candidate_key.startswith("gsk_"):
+        candidate_key = ""
+    if not candidate_key:
         candidate_key = configured_key.strip()
-    if not candidate_key or (candidate_key.startswith("sk-") and not candidate_key.startswith("gsk_")):
+    if not candidate_key or not candidate_key.startswith("gsk_"):
         return None
     return openai.OpenAI(
         api_key=candidate_key,
@@ -839,8 +873,20 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
 
     system_instruction = (
         "You are a Semantic Intent & Cyber Safety Classifier. Evaluate if the prompt asks to CREATE malware, "
-        "EXPLOIT vulnerabilities, or HACK devices. Respond in JSON format with fields: label, category, intent, risk_score, confidence, reason."
+        "EXPLOIT vulnerabilities, or HACK devices. Respond in JSON format with fields: label, category, intent, risk_score, confidence, reason. "
+        "IMPORTANT: risk_score must be a float between 0.0 (completely safe) and 1.0 (critical threat). confidence must be a float between 0.0 and 1.0."
     )
+
+    def _normalize_score(val, default=0.0):
+        try:
+            score = float(val)
+            if score > 10.0:
+                score = score / 100.0
+            elif score > 1.0:
+                score = score / 10.0
+            return round(min(max(score, 0.0), 1.0), 2)
+        except Exception:
+            return default
 
     groq_k, groq_m = get_groq_config()
     groq_c = get_groq_client(api_key if (api_key and str(api_key).startswith("gsk_")) else None)
@@ -854,12 +900,14 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
                 timeout=5.0
             )
             data = json.loads(resp.choices[0].message.content.strip())
+            norm_risk = _normalize_score(data.get("risk_score", 0.0), 0.0)
+            norm_conf = _normalize_score(data.get("confidence", 0.90), 0.90)
             return {
                 "label": str(data.get("label", "SAFE")).upper(),
                 "category": str(data.get("category", "BENIGN")),
                 "intent": str(data.get("intent", "General Query")),
-                "risk_score": float(data.get("risk_score", 0.0)),
-                "confidence": float(data.get("confidence", 0.90)),
+                "risk_score": norm_risk,
+                "confidence": norm_conf,
                 "reason": str(data.get("reason", f"Groq AI Judge ({groq_m}) classification."))
             }
         except Exception:
@@ -876,12 +924,14 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
             json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group(0))
+                norm_risk = _normalize_score(data.get("risk_score", 0.0), 0.0)
+                norm_conf = _normalize_score(data.get("confidence", 0.90), 0.90)
                 return {
                     "label": str(data.get("label", "SAFE")).upper(),
                     "category": str(data.get("category", "BENIGN")),
                     "intent": str(data.get("intent", "General Query")),
-                    "risk_score": float(data.get("risk_score", 0.0)),
-                    "confidence": float(data.get("confidence", 0.90)),
+                    "risk_score": norm_risk,
+                    "confidence": norm_conf,
                     "reason": str(data.get("reason", "Local AI Judge classification."))
                 }
         except Exception:
@@ -1999,6 +2049,18 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "type": "text",
                     "content": "⚠️ **Groq Rate Limit Exceeded (HTTP 429):** The Groq LLM endpoint is currently rate-limited. Please wait a moment before trying again, or switch models in the sidebar."
                 }
+            if "401" in err_str or "invalid_api_key" in err_str.lower():
+                return {
+                    "type": "text",
+                    "content": (
+                        "⚠️ **Groq API Error: 401 - Invalid API Key.**\n\n"
+                        "The Groq API key was rejected by Groq Cloud. Groq keys must begin with `gsk_` (e.g., from [console.groq.com/keys](https://console.groq.com/keys)).\n\n"
+                        "💡 **Fix:**\n"
+                        "1. Go to **⚙️ Engine Settings** tab in this app.\n"
+                        "2. Paste your valid Groq API key starting with `gsk_` and click **Save Groq Settings**.\n"
+                        "*(Note: OpenAI keys start with `sk-` and cannot be used for Groq text generation).*"
+                    )
+                }
             return {"type": "text", "content": f"⚠️ **Groq API Error:** {err_str}"}
 
     if "Ollama" in engine_choice:
@@ -2973,6 +3035,15 @@ elif nav_choice == "⚙️ Engine Settings":
     ''', unsafe_allow_html=True)
     st.markdown("<hr style='margin: 12px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
+    if st.session_state.get("settings_notice"):
+        notice_type, notice_msg = st.session_state.pop("settings_notice")
+        if notice_type == "success":
+            st.success(notice_msg)
+        elif notice_type == "error":
+            st.error(notice_msg)
+        else:
+            st.info(notice_msg)
+
     c1, c2 = st.columns(2)
 
     with c1:
@@ -3002,11 +3073,26 @@ elif nav_choice == "⚙️ Engine Settings":
         input_groq_model = st.selectbox("Groq Model:", groq_model_options, index=gmodel_idx)
         
         if st.button("💾 Save Groq Settings", type="primary"):
-            save_persistent_secrets(groq_key=input_groq_key.strip(), groq_model=input_groq_model.strip())
-            st.session_state.custom_groq_api_key = input_groq_key.strip()
-            st.session_state.selected_groq_model = input_groq_model.strip()
-            masked_k = f"{input_groq_key[:8]}...{input_groq_key[-4:]}" if len(input_groq_key.strip()) > 12 else ("Configured" if input_groq_key.strip() else "Cleared")
-            st.success(f"Groq Cloud settings saved securely to secrets configuration ({masked_k})! Settings will persist across page refreshes.")
+            cleaned_gk = input_groq_key.strip()
+            if cleaned_gk and not cleaned_gk.startswith("gsk_"):
+                st.session_state.settings_notice = (
+                    "error",
+                    f"⚠️ **Invalid Groq API Key Format:** Groq keys must begin with `gsk_` (received `{cleaned_gk[:8]}...`). OpenAI keys begin with `sk-`. Please get your Groq key from [console.groq.com/keys](https://console.groq.com/keys)."
+                )
+            else:
+                saved_to_disk = save_persistent_secrets(groq_key=cleaned_gk, groq_model=input_groq_model.strip())
+                st.session_state.custom_groq_api_key = cleaned_gk
+                st.session_state.selected_groq_model = input_groq_model.strip()
+                masked_k = f"{cleaned_gk[:8]}...{cleaned_gk[-4:]}" if len(cleaned_gk) > 12 else ("Configured" if cleaned_gk else "Cleared")
+                if saved_to_disk:
+                    st.session_state.settings_notice = ("success", f"Groq Cloud settings saved securely to secrets configuration ({masked_k})! Settings will persist across page refreshes.")
+                else:
+                    st.session_state.settings_notice = ("info", f"Groq Cloud settings applied for this session ({masked_k})! (Note: Cloud deployment file system is read-only. For permanent persistence across container restarts, configure GROQ_API_KEY in Streamlit Cloud under 'Manage app' -> 'Secrets').")
+                if hasattr(st, "toast"):
+                    try:
+                        st.toast("Groq settings updated!", icon="⚡")
+                    except Exception:
+                        pass
             st.rerun()
 
         st.markdown("---")
@@ -3016,10 +3102,25 @@ elif nav_choice == "⚙️ Engine Settings":
         current_oai_key = get_openai_image_key()
         input_key = st.text_input("OpenAI API Key (DALL-E 3 Image Generation Only):", value=st.session_state.custom_api_key or current_oai_key or "", type="password", placeholder="sk-proj-...")
         if st.button("💾 Save OpenAI Key", type="secondary"):
-            save_persistent_secrets(openai_key=input_key.strip())
-            st.session_state.custom_api_key = input_key.strip()
-            masked_oai = f"{input_key[:8]}...{input_key[-4:]}" if len(input_key.strip()) > 12 else ("Configured" if input_key.strip() else "Cleared")
-            st.success(f"OpenAI Image Key saved securely to secrets configuration ({masked_oai})! Settings will persist across page refreshes.")
+            cleaned_oai = input_key.strip()
+            if cleaned_oai and not cleaned_oai.startswith("sk-"):
+                st.session_state.settings_notice = (
+                    "error",
+                    f"⚠️ **Invalid OpenAI API Key Format:** OpenAI keys must begin with `sk-` (received `{cleaned_oai[:8]}...`). Groq keys begin with `gsk_`. Please check your OpenAI API key from platform.openai.com."
+                )
+            else:
+                saved_to_disk = save_persistent_secrets(openai_key=cleaned_oai)
+                st.session_state.custom_api_key = cleaned_oai
+                masked_oai = f"{cleaned_oai[:8]}...{cleaned_oai[-4:]}" if len(cleaned_oai) > 12 else ("Configured" if cleaned_oai else "Cleared")
+                if saved_to_disk:
+                    st.session_state.settings_notice = ("success", f"OpenAI Image Key saved securely to secrets configuration ({masked_oai})! Settings will persist across page refreshes.")
+                else:
+                    st.session_state.settings_notice = ("info", f"OpenAI Image Key applied for this session ({masked_oai})! (Note: Cloud deployment file system is read-only. For permanent persistence across container restarts, configure OPENAI_API_KEY in Streamlit Cloud under 'Manage app' -> 'Secrets').")
+                if hasattr(st, "toast"):
+                    try:
+                        st.toast("OpenAI Key updated!", icon="🔑")
+                    except Exception:
+                        pass
             st.rerun()
 
         st.markdown("---")

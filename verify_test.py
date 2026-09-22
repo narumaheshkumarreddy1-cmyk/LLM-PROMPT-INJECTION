@@ -376,10 +376,20 @@ print(f"[PASSED] Persistent Groq Model loaded cleanly: {gm_loaded}")
 
 # Test saving and reading through save_persistent_secrets
 test_model_save = "openai/gpt-oss-120b"
-save_persistent_secrets(groq_model=test_model_save)
+save_res = save_persistent_secrets(groq_model=test_model_save)
 k_check, m_check = get_groq_config()
 assert m_check == test_model_save, f"Expected {test_model_save}, got: {m_check}"
 print(f"[PASSED] Secrets persistence successfully updated and retrieved model: {m_check}")
+
+# Test simulated read-only filesystem (e.g. Streamlit Cloud OSError)
+from unittest.mock import patch
+with patch("builtins.open", side_effect=OSError(30, "Read-only file system")):
+    test_ro_key = "sk-proj-testreadonlykey12345678"
+    ro_saved = save_persistent_secrets(openai_key=test_ro_key)
+    assert ro_saved is False, "Expected save_persistent_secrets to return False on read-only file system"
+    ro_loaded = get_openai_image_key()
+    assert ro_loaded == test_ro_key, f"Expected {test_ro_key} loaded in session/env, got: {ro_loaded}"
+    print(f"[PASSED] Cloud read-only OSError gracefully handled without crash; credentials safely preserved: {ro_loaded[:12]}...")
 
 print("\n" + "=" * 80)
 print(" 12. MERMAID DIAGRAM VS IMAGE GENERATION ROUTING VERIFICATION")
