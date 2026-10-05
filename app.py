@@ -1593,88 +1593,18 @@ def extract_subject_and_build_image_prompt(user_prompt: str, history_messages=No
 
 def generate_ai_image(prompt_text, api_key=None, history_messages=None):
     """
-    Real AI Image Generation Provider Caller.
-    Strictly verifies provider configuration and API key.
-    Never returns fake/random images or unsplash placeholders.
-    Never routes to Llama 3.2 text LLM.
-    Preserves user's actual request and enhances with visual composition without altering subject.
+    Image generation is disabled in this prompt gateway.
+    Returns the engineered prompt so the user receives a high-quality prompt rather than an image.
     """
-    pref_engine = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
-    effective_key = api_key if (api_key and not str(api_key).startswith("gsk_")) else get_openai_image_key()
-    
     subject, enhanced_prompt = extract_subject_and_build_image_prompt(prompt_text, history_messages)
-    original_user_prompt = prompt_text
-    image_generation_prompt = enhanced_prompt
-
-    if "OpenAI" in pref_engine or "DALL-E" in pref_engine:
-        if not effective_key:
-            return {
-                "type": "text",
-                "error": True,
-                "content": "Image generation is not configured. Please configure an image-generation provider/API key.",
-                "original_user_prompt": original_user_prompt,
-                "image_generation_prompt": image_generation_prompt,
-                "subject": subject
-            }
-        try:
-            client = openai.OpenAI(api_key=effective_key, base_url="https://api.openai.com/v1")
-            response = client.images.generate(
-                model="dall-e-3",
-                prompt=enhanced_prompt,
-                size="1024x1024",
-                quality="standard",
-                n=1,
-            )
-            return {
-                "type": "image",
-                "url": response.data[0].url,
-                "caption": f"Generated via OpenAI DALL-E 3: {subject}",
-                "content": f"Here is the generated image for: *\"{subject}\"*",
-                "original_user_prompt": original_user_prompt,
-                "image_generation_prompt": image_generation_prompt,
-                "subject": subject
-            }
-        except Exception as e:
-            return {
-                "type": "text",
-                "error": True,
-                "content": f"OpenAI DALL-E 3 Error: {str(e)}\n\nPlease ensure your API key has DALL-E 3 permissions, or configure an active image-generation provider.",
-                "original_user_prompt": original_user_prompt,
-                "image_generation_prompt": image_generation_prompt,
-                "subject": subject
-            }
-
-    elif "Pollinations" in pref_engine:
-        try:
-            encoded_prompt = urllib.parse.quote(enhanced_prompt)
-            return {
-                "type": "image",
-                "url": f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=800&nologo=true",
-                "caption": f"Generated via Pollinations AI Neural Engine: {subject}",
-                "content": f"Here is the generated image for: *\"{subject}\"*",
-                "original_user_prompt": original_user_prompt,
-                "image_generation_prompt": image_generation_prompt,
-                "subject": subject
-            }
-        except Exception as e:
-            return {
-                "type": "text",
-                "error": True,
-                "content": f"Pollinations AI Error: {str(e)}",
-                "original_user_prompt": original_user_prompt,
-                "image_generation_prompt": image_generation_prompt,
-                "subject": subject
-            }
-
-    else:
-        return {
-            "type": "text",
-            "error": True,
-            "content": "Image generation is not configured. Please configure an image-generation provider/API key.",
-            "original_user_prompt": original_user_prompt,
-            "image_generation_prompt": image_generation_prompt,
-            "subject": subject
-        }
+    crafted = craft_engineered_prompt(prompt_text, history_messages, api_key=api_key)
+    return {
+        "type": "text",
+        "content": crafted,
+        "original_user_prompt": prompt_text,
+        "image_generation_prompt": enhanced_prompt,
+        "subject": subject
+    }
 
 def craft_engineered_prompt(user_input, history_messages=None, engine_choice="", api_key=""):
     """
@@ -1837,67 +1767,29 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
 
     effective_key = api_key or st.session_state.get("custom_api_key", "")
 
-    # INTENT: PROMPT_WRITING (Return prompt only, DO NOT generate image)
-    if intent == INTENT_PROMPT_WRITING:
+    # INTENT: PROMPT_WRITING or IMAGE_REQUEST (Return engineered prompt only, DO NOT generate images)
+    if intent in (INTENT_PROMPT_WRITING, INTENT_IMAGE_GENERATION):
         prompt_output = craft_engineered_prompt(user_input, history_messages, engine_choice, effective_key)
+        if security_res:
+            security_res["original_user_prompt"] = user_input
+            security_res["image_generation_prompt"] = prompt_output
+            if st.session_state.get("audit_history"):
+                st.session_state.audit_history[-1].update({
+                    "original_user_prompt": user_input,
+                    "image_generation_prompt": prompt_output
+                })
         return {
             "type": "text",
             "content": prompt_output
         }
 
-    # INTENT: IMAGE_GENERATION (Called ONLY when final intent is IMAGE_GENERATION)
-    if intent == INTENT_IMAGE_GENERATION:
-        img_key = get_openai_image_key()
-        if is_multi_action:
-            crafted = craft_engineered_prompt(user_input, history_messages, engine_choice, effective_key)
-            img_res = generate_ai_image(user_input, img_key, history_messages)
-            gen_img_prompt = img_res.get("image_generation_prompt", user_input)
-            if security_res:
-                security_res["original_user_prompt"] = user_input
-                security_res["image_generation_prompt"] = gen_img_prompt
-                if st.session_state.get("audit_history"):
-                    st.session_state.audit_history[-1].update({
-                        "original_user_prompt": user_input,
-                        "image_generation_prompt": gen_img_prompt
-                    })
-            if img_res.get("type") == "image":
-                img_res["content"] = f"{crafted}\n\n---\n\nHere is your generated image:"
-                return img_res
-            else:
-                return {
-                    "type": "text",
-                    "content": f"{crafted}\n\n---\n\n⚠️ {img_res.get('content', 'Image generation could not be completed.')}",
-                    "original_user_prompt": user_input,
-                    "image_generation_prompt": gen_img_prompt
-                }
-        else:
-            img_res = generate_ai_image(user_input, img_key, history_messages)
-            gen_img_prompt = img_res.get("image_generation_prompt", user_input)
-            if security_res:
-                security_res["original_user_prompt"] = user_input
-                security_res["image_generation_prompt"] = gen_img_prompt
-                if st.session_state.get("audit_history"):
-                    st.session_state.audit_history[-1].update({
-                        "original_user_prompt": user_input,
-                        "image_generation_prompt": gen_img_prompt
-                    })
-            if img_res.get("type") == "image":
-                return img_res
-            else:
-                return {
-                    "type": "text",
-                    "content": f"⚠️ **Image Generation Status**\n\n{img_res.get('content')}",
-                    "original_user_prompt": user_input,
-                    "image_generation_prompt": gen_img_prompt
-                }
-
-    # For non-image intents, document N/A in telemetry
+    # For other intents, document N/A in telemetry
     if security_res:
         security_res.setdefault("original_user_prompt", user_input)
-        security_res.setdefault("image_generation_prompt", "N/A (Non-Image Intent)")
+        security_res.setdefault("image_generation_prompt", "N/A (Text / Code Intent)")
         if st.session_state.get("audit_history"):
             st.session_state.audit_history[-1].setdefault("original_user_prompt", user_input)
-            st.session_state.audit_history[-1].setdefault("image_generation_prompt", "N/A (Non-Image Intent)")
+            st.session_state.audit_history[-1].setdefault("image_generation_prompt", "N/A (Text / Code Intent)")
 
     # INTENT: IMAGE_ANALYSIS
     if intent == INTENT_IMAGE_ANALYSIS:
@@ -2424,7 +2316,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             "Groq Cloud API (Ultra-Fast LLM)",
             "Ollama (llama3.2 Local)",
             "Fast Semantic Guardrail Engine",
-            "OpenAI (GPT-4o + DALL-E 3)"
+            "OpenAI (GPT-4o Text)"
         ]
         curr_ai_engine = st.session_state.get("selected_ai_engine", "Groq Cloud API (Ultra-Fast LLM)")
         ai_idx = ai_engine_options.index(curr_ai_engine) if curr_ai_engine in ai_engine_options else 0
@@ -2437,21 +2329,9 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
         st.session_state.selected_ai_engine = engine_choice
 
     with head_col4:
-        with st.popover("🎛️ Technology Wish", width="stretch"):
-            st.markdown("#### 🎛️ Technology Options")
-            st.caption("Select technologies according to your wish:")
-            
-            st.markdown("**🖼️ Image Generation Technology**")
-            curr_img = st.session_state.get("selected_image_engine", "Pollinations AI (Free & Instant)")
-            img_opts = ["Pollinations AI (Free & Instant)", "OpenAI DALL-E 3 (Cloud HD)"]
-            img_idx = img_opts.index(curr_img) if curr_img in img_opts else 0
-            new_img = st.radio("Image Engine", img_opts, index=img_idx, key="pref_img_radio")
-            if new_img != curr_img:
-                st.session_state.selected_image_engine = new_img
-                st.rerun()
-
-            st.markdown("---")
-            st.markdown("**🛡️ Defense Detectors (User Wish)**")
+        with st.popover("🎛️ Defense Pipeline", width="stretch"):
+            st.markdown("#### 🛡️ Defense Detectors (User Wish)")
+            st.caption("Customize active defense and inspection layers:")
             c_d1 = st.checkbox("Layer 1: Heuristic Regex Signatures", value=st.session_state.get("enable_detector_1", True), key="u_chk_d1")
             c_d2 = st.checkbox("Layer 2: Scikit-Learn TF-IDF Vectors", value=st.session_state.get("enable_detector_2", True), key="u_chk_d2")
             c_d3 = st.checkbox("Layer 3: AI Security Judge", value=st.session_state.get("enable_detector_3", True), key="u_chk_d3")
@@ -2467,7 +2347,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
                 st.session_state.enable_multimodal = c_d4
                 st.rerun()
 
-            st.markdown(f"<div style='font-size: 0.75rem; color: #10b981; font-weight: 600; margin-top: 4px;'>✔ Selected: {new_img.split(' ')[0]} + {sum([c_d1, c_d2, c_d3, c_d4])}/4 Detectors Active</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size: 0.75rem; color: #10b981; font-weight: 600; margin-top: 4px;'>✔ Active: {sum([c_d1, c_d2, c_d3, c_d4])}/4 Detectors</div>", unsafe_allow_html=True)
 
     # Print Dialog Trigger Handler
     if st.session_state.get("trigger_print_sid"):
@@ -2481,7 +2361,8 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
         ''', unsafe_allow_html=True)
         st.info("🖨️ Opening print dialog. You can print the conversation or save it as PDF.")
 
-    api_key = st.session_state.get("custom_api_key", "") or st.secrets.get("OPENAI_API_KEY", "")
+    groq_k_active, _ = get_groq_config()
+    api_key = groq_k_active or st.session_state.get("custom_api_key", "")
 
     # Technology Stack & Dual-Detector Architecture Showcase Expander
     with st.expander("⚡ Technology Stack & User-Selected Pipeline Status", expanded=False):
@@ -2494,14 +2375,14 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
         with t1:
             st.markdown(f"""
             **🦙 AI Engine Choice**  
-            `{st.session_state.get('selected_ai_engine', 'Ollama llama3.2')}`  
+            `{st.session_state.get('selected_ai_engine', 'Groq Cloud API')}`  
             Primary reasoning and conversational generator.
             """)
         with t2:
             st.markdown(f"""
-            **🖼️ Image Engine**  
-            `{st.session_state.get('selected_image_engine', 'Pollinations AI')}`  
-            Real AI image generation matching ANY prompt.
+            **📝 Prompt Engine**  
+            `Prompt Synthesis & Refinement`  
+            Dedicated to prompt creation and security analysis.
             """)
         with t3:
             st.markdown(f"""
@@ -2517,7 +2398,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             """)
         st.markdown("""
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 0.8rem; color: #475569; margin-top: 4px;">
-            <b>Dual-Detector Pipeline Flow:</b> User Input / Multimodal File ➔ <b>Detector 1</b> (Heuristic Regex Filter) ➔ <b>Detector 2</b> (Semantic Vector Intent Classification) ➔ <b>Risk Aggregator Engine</b> ➔ <b>Model Execution</b> (Ollama Local / Semantic Guardrail / OpenAI Cloud).
+            <b>Dual-Detector Pipeline Flow:</b> User Input / File ➔ <b>Detector 1</b> (Heuristic Regex Filter) ➔ <b>Detector 2</b> (Semantic Vector Intent Classification) ➔ <b>Risk Aggregator Engine</b> ➔ <b>Model Execution</b> (Groq Cloud / Semantic Guardrail / Ollama).
         </div>
         """, unsafe_allow_html=True)
 
@@ -2593,16 +2474,12 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
                     ''', unsafe_allow_html=True)
 
                     ans = msg.get("answer", {})
-                    if isinstance(ans, dict) and ans.get("type") == "image":
-                        st.image(ans["url"], caption=f"🖼️ {ans.get('caption', 'Generated Image')}", width="stretch")
-                        if ans.get("content"):
-                            st.markdown(ans["content"])
-                        if ans.get("image_generation_prompt"):
-                            with st.expander("🔍 Image Prompt Telemetry", expanded=False):
-                                st.markdown(f"**Original User Request:** `{ans.get('original_user_prompt', '')}`")
-                                st.markdown(f"**Prompt Sent to Provider:**\n> *\"{ans.get('image_generation_prompt', '')}\"*")
-                    elif isinstance(ans, dict) and ans.get("type") == "text":
+                    if isinstance(ans, dict) and ans.get("content"):
                         st.markdown(ans["content"])
+                        if ans.get("image_generation_prompt") and ans.get("image_generation_prompt") != "N/A (Text / Code Intent)":
+                            with st.expander("🔍 Prompt Engineering Telemetry", expanded=False):
+                                st.markdown(f"**Original User Request:** `{ans.get('original_user_prompt', '')}`")
+                                st.markdown(f"**Engineered Prompt:**\n> *\"{ans.get('image_generation_prompt', '')}\"*")
                     elif isinstance(ans, str):
                         st.markdown(ans)
 
@@ -3047,15 +2924,20 @@ elif nav_choice == "⚙️ Engine Settings":
     c1, c2 = st.columns(2)
 
     with c1:
-        st.subheader("⚡ Groq API Key & Model Configuration")
-        st.write("Enter your Groq API key to power ultra-fast LLM text generation, intent classification, prompt engineering, and code generation.")
-        
+        st.subheader("⚡ System LLM Engine (Groq Cloud)")
         current_cfg_key, current_cfg_model = get_groq_config()
+        
+        if current_cfg_key:
+            st.success("🟢 **Server Groq API Key is Configured & Active!** All users can use text generation and prompt engineering out-of-the-box without entering any API key.")
+        else:
+            st.warning("⚠️ **Server Groq Key Not Detected:** Add `GROQ_API_KEY` to Streamlit Cloud Secrets (or save below) so visitors can use the application freely.")
+
+        st.caption("Admin / Developer Session Override (Optional):")
         input_groq_key = st.text_input(
-            "Groq API Key:",
+            "Developer Groq API Key (Optional):",
             value=st.session_state.get("custom_groq_api_key") or current_cfg_key or "",
             type="password",
-            placeholder="gsk_..."
+            placeholder="gsk_... (leave empty to use server secrets)"
         )
         groq_model_options = [
             "openai/gpt-oss-120b",
@@ -3072,7 +2954,7 @@ elif nav_choice == "⚙️ Engine Settings":
         gmodel_idx = groq_model_options.index(curr_gmodel)
         input_groq_model = st.selectbox("Groq Model:", groq_model_options, index=gmodel_idx)
         
-        if st.button("💾 Save Groq Settings", type="primary"):
+        if st.button("💾 Save Engine Settings", type="primary"):
             cleaned_gk = input_groq_key.strip()
             if cleaned_gk and not cleaned_gk.startswith("gsk_"):
                 st.session_state.settings_notice = (
@@ -3096,34 +2978,6 @@ elif nav_choice == "⚙️ Engine Settings":
             st.rerun()
 
         st.markdown("---")
-        st.subheader("🔑 OpenAI API Key Configuration (Image Generation)")
-        st.write("Enter your OpenAI API key strictly for DALL-E 3 image generation.")
-        
-        current_oai_key = get_openai_image_key()
-        input_key = st.text_input("OpenAI API Key (DALL-E 3 Image Generation Only):", value=st.session_state.custom_api_key or current_oai_key or "", type="password", placeholder="sk-proj-...")
-        if st.button("💾 Save OpenAI Key", type="secondary"):
-            cleaned_oai = input_key.strip()
-            if cleaned_oai and not cleaned_oai.startswith("sk-"):
-                st.session_state.settings_notice = (
-                    "error",
-                    f"⚠️ **Invalid OpenAI API Key Format:** OpenAI keys must begin with `sk-` (received `{cleaned_oai[:8]}...`). Groq keys begin with `gsk_`. Please check your OpenAI API key from platform.openai.com."
-                )
-            else:
-                saved_to_disk = save_persistent_secrets(openai_key=cleaned_oai)
-                st.session_state.custom_api_key = cleaned_oai
-                masked_oai = f"{cleaned_oai[:8]}...{cleaned_oai[-4:]}" if len(cleaned_oai) > 12 else ("Configured" if cleaned_oai else "Cleared")
-                if saved_to_disk:
-                    st.session_state.settings_notice = ("success", f"OpenAI Image Key saved securely to secrets configuration ({masked_oai})! Settings will persist across page refreshes.")
-                else:
-                    st.session_state.settings_notice = ("info", f"OpenAI Image Key applied for this session ({masked_oai})! (Note: Cloud deployment file system is read-only. For permanent persistence across container restarts, configure OPENAI_API_KEY in Streamlit Cloud under 'Manage app' -> 'Secrets').")
-                if hasattr(st, "toast"):
-                    try:
-                        st.toast("OpenAI Key updated!", icon="🔑")
-                    except Exception:
-                        pass
-            st.rerun()
-
-        st.markdown("---")
         st.subheader("🎛️ Risk Decision Thresholds")
         
         b_thresh = st.slider("Block Threshold (Scores ≥ this are BLOCKED):", min_value=0.50, max_value=1.00, value=float(st.session_state.block_threshold), step=0.05)
@@ -3142,7 +2996,7 @@ elif nav_choice == "⚙️ Engine Settings":
             "Groq Cloud API (Ultra-Fast LLM)",
             "Ollama (llama3.2 Local)",
             "Fast Semantic Guardrail Engine",
-            "OpenAI (GPT-4o + DALL-E 3)"
+            "OpenAI (GPT-4o Text)"
         ]
         curr_ai_p = st.session_state.get("selected_ai_engine", "Groq Cloud API (Ultra-Fast LLM)")
         ai_p_idx = ai_pref_options.index(curr_ai_p) if curr_ai_p in ai_pref_options else 0
@@ -3152,14 +3006,7 @@ elif nav_choice == "⚙️ Engine Settings":
             index=ai_p_idx,
             key="set_pref_ai"
         )
-        pref_img = st.selectbox(
-            "Default Image Generator:",
-            ["Pollinations AI (Free & Instant)", "OpenAI DALL-E 3 (Cloud HD)"],
-            index=0 if "Pollinations" in st.session_state.get("selected_image_engine", "Pollinations") else 1,
-            key="set_pref_img"
-        )
         st.session_state.selected_ai_engine = pref_ai
-        st.session_state.selected_image_engine = pref_img
 
         st.markdown("##### Active Defense Layer Toggles")
         st.session_state.enable_detector_1 = st.checkbox("Layer 1: Heuristic Regex Signatures", value=st.session_state.get("enable_detector_1", True), key="set_chk_d1")
@@ -3173,10 +3020,8 @@ elif nav_choice == "⚙️ Engine Settings":
         st.json({
             "authenticated_user": st.session_state.auth_user,
             "selected_ai_engine": st.session_state.selected_ai_engine,
-            "selected_image_engine": st.session_state.selected_image_engine,
             "groq_configured": bool(groq_k_diag),
             "groq_model": groq_m_diag,
-            "openai_image_key_configured": bool(get_openai_image_key()),
             "active_detectors": {
                 "detector_1_regex": st.session_state.enable_detector_1,
                 "detector_2_tfidf": st.session_state.enable_detector_2,

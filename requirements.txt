@@ -1,5 +1,5 @@
 streamlit
-authlib
+Authlib==1.3.2
 openai
 ollama
 pandas
