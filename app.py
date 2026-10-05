@@ -513,7 +513,6 @@ def get_groq_config():
                         break
             except Exception:
                 pass
-
     groq_model = ""
     try:
         groq_model = st.session_state.get("selected_groq_model", "")
@@ -2480,6 +2479,24 @@ st.sidebar.markdown('''
 ''', unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
+
+with st.sidebar.popover("🔑 Groq API Settings", width="stretch"):
+    st.markdown("#### ⚙️ Groq AI Credentials")
+    st.caption("Active models: `openai/gpt-oss-20b` (fast) & `120b` (deep)")
+    cur_gsk_val = st.session_state.get("custom_groq_api_key", "")
+    input_gsk = st.text_input("Groq API Key (`gsk_...`):", value=cur_gsk_val, type="password", help="Enter free API key from console.groq.com")
+    if st.button("Save API Key", key="save_gsk_btn", width="stretch", type="primary"):
+        if input_gsk.strip().startswith("gsk_"):
+            save_persistent_secrets(groq_key=input_gsk.strip())
+            st.session_state.custom_groq_api_key = input_gsk.strip()
+            st.success("Groq API Key saved successfully!")
+            st.rerun()
+        elif not input_gsk.strip():
+            st.session_state.custom_groq_api_key = ""
+            st.info("Reset to default system key.")
+            st.rerun()
+        else:
+            st.error("Invalid key format. Groq API keys must begin with 'gsk_'")
 
 display_user = html.escape(st.session_state.auth_user)
 st.sidebar.markdown(f"👤 `{display_user}`")
