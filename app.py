@@ -627,7 +627,7 @@ if "custom_rules" not in st.session_state:
         (r"(?i)\b(system\s+override)\b", "Custom Override Rule", 0.90)
     ]
 if "selected_ai_engine" not in st.session_state:
-    st.session_state.selected_ai_engine = "Groq Cloud API (Ultra-Fast LLM)"
+    st.session_state.selected_ai_engine = "Groq: GPT-OSS 20B (Ultra-Fast ⚡)"
 if "selected_image_engine" not in st.session_state:
     st.session_state.selected_image_engine = "Pollinations AI (Free & Instant)"
 if "enable_detector_1" not in st.session_state:
@@ -1933,7 +1933,12 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
 
     # 4. Synchronize security_res and audit_history telemetry
     groq_k, groq_m = get_groq_config()
-    target_groq_model = groq_m if groq_m else "openai/gpt-oss-120b"
+    if "120b" in str(engine_choice).lower():
+        target_groq_model = "openai/gpt-oss-120b"
+    elif "20b" in str(engine_choice).lower():
+        target_groq_model = "openai/gpt-oss-20b"
+    else:
+        target_groq_model = groq_m if groq_m else "openai/gpt-oss-20b"
     groq_client = get_groq_client(api_key if (api_key and str(api_key).startswith("gsk_")) else None)
 
     selected_model_label = engine_choice
@@ -2038,25 +2043,30 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     # INTENT: CODE_GENERATION
     if intent == INTENT_CODE_GENERATION:
         if groq_client:
-            try:
-                code_msgs = [
-                    {
-                        "role": "system",
-                        "content": "You are an expert, production-grade software engineer. Write clean, idiomatic, robust, and well-commented code following best security practices."
-                    },
-                    {"role": "user", "content": user_input}
-                ]
-                resp = groq_client.chat.completions.create(
-                    model=target_groq_model,
-                    messages=code_msgs,
-                    temperature=0.2,
-                    timeout=25.0
-                )
-                code_content = resp.choices[0].message.content
-                if code_content and code_content.strip():
-                    return {"type": "text", "content": code_content}
-            except Exception as e:
-                pass  # Fall back to template code if network/quota fails
+            models_to_try = [target_groq_model]
+            if "20b" not in target_groq_model:
+                models_to_try.append("openai/gpt-oss-20b")
+            for m_try in models_to_try:
+                try:
+                    code_msgs = [
+                        {
+                            "role": "system",
+                            "content": "You are an expert, production-grade software engineer. Write clean, idiomatic, robust, and well-commented code following best security practices."
+                        },
+                        {"role": "user", "content": user_input}
+                    ]
+                    resp = groq_client.chat.completions.create(
+                        model=m_try,
+                        messages=code_msgs,
+                        temperature=0.2,
+                        timeout=45.0
+                    )
+                    code_content = resp.choices[0].message.content
+                    if code_content and code_content.strip():
+                        return {"type": "text", "content": code_content}
+                except Exception as e:
+                    print(f"[GROQ CODE ERROR with {m_try}]: {e}")
+                    continue
 
         if "prime" in query_lower:
             text_out = ("### 🔢 Optimized Prime Number Algorithm (Python)\n\n"
@@ -2113,7 +2123,9 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     for msg in history_messages[-6:]:
         role = msg.get("role")
         if role == "user":
-            formatted_messages.append({"role": "user", "content": msg.get("content", "")})
+            content_val = msg.get("content", "")
+            if content_val and not (formatted_messages and formatted_messages[-1].get("role") == "user"):
+                formatted_messages.append({"role": "user", "content": content_val})
         elif role == "assistant":
             ans = msg.get("answer", {})
             content_text = ans.get("content", "") if isinstance(ans, dict) else str(ans)
@@ -2121,35 +2133,44 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 content_text = msg["content"]
             if content_text:
                 formatted_messages.append({"role": "assistant", "content": content_text})
-    formatted_messages.append({"role": "user", "content": user_input})
+    if not (formatted_messages and formatted_messages[-1].get("role") == "user" and formatted_messages[-1].get("content") == user_input):
+        formatted_messages.append({"role": "user", "content": user_input})
 
     # Groq Cloud API for fast, secure text generation
     if groq_client:
-        try:
-            resp = groq_client.chat.completions.create(
-                model=target_groq_model,
-                messages=formatted_messages,
-                timeout=25.0
-            )
-            llm_text = resp.choices[0].message.content
-            if llm_text and llm_text.strip():
-                return {"type": "text", "content": llm_text}
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "rate_limit" in err_str.lower():
-                return {
-                    "type": "text",
-                    "content": "⚠️ **Groq Rate Limit Exceeded (HTTP 429):** The Groq LLM endpoint is currently rate-limited. Please wait a moment before trying again, or switch models in the sidebar."
-                }
-            if "401" in err_str or "invalid_api_key" in err_str.lower():
-                return {
-                    "type": "text",
-                    "content": (
-                        "⚠️ **Groq API Error: 401 - Invalid API Key.**\n\n"
-                        "The Groq API key was rejected by Groq Cloud. Please ensure a valid `gsk_` key is saved in `.streamlit/secrets.toml`."
-                    )
-                }
-            # Gracefully continue to built-in knowledge engine
+        models_to_try = [target_groq_model]
+        if "20b" not in target_groq_model:
+            models_to_try.append("openai/gpt-oss-20b")
+        elif "120b" not in target_groq_model:
+            models_to_try.append("openai/gpt-oss-120b")
+
+        for m_try in models_to_try:
+            try:
+                resp = groq_client.chat.completions.create(
+                    model=m_try,
+                    messages=formatted_messages,
+                    timeout=50.0
+                )
+                llm_text = resp.choices[0].message.content
+                if llm_text and llm_text.strip():
+                    return {"type": "text", "content": llm_text}
+            except Exception as e:
+                err_str = str(e)
+                print(f"[GROQ CHAT ERROR with {m_try}]: {err_str}")
+                if "429" in err_str or "rate_limit" in err_str.lower():
+                    return {
+                        "type": "text",
+                        "content": "⚠️ **Groq Rate Limit Exceeded (HTTP 429):** The Groq LLM endpoint is currently rate-limited. Please wait a moment before trying again."
+                    }
+                if "401" in err_str or "invalid_api_key" in err_str.lower():
+                    return {
+                        "type": "text",
+                        "content": (
+                            "⚠️ **Groq API Error: 401 - Invalid API Key.**\n\n"
+                            "The Groq API key was rejected by Groq Cloud. Please ensure a valid `gsk_` key is saved in `.streamlit/secrets.toml`."
+                        )
+                    }
+                continue
 
     if "Ollama" in engine_choice:
         try:
@@ -2293,23 +2314,16 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         return {"type": "text", "content": text_out}
 
     else:
+        if groq_client:
+            return {
+                "type": "text",
+                "content": "⚠️ **AI Generation Notice:** The model did not return a response in time. Please resend your message or switch to `openai/gpt-oss-20b` for instant answers."
+            }
         topic = user_input.strip().rstrip("?").title()
-        text_out = (
-            f"### 💡 AI Intelligence Breakdown: {topic}\n\n"
-            f"**Security Verdict:** Clean payload verified with status `ALLOW (200 OK)` (Risk: `0.00 / 1.00`).\n\n"
-            f"Here is an in-depth overview and analysis regarding **{topic}**:\n\n"
-            f"#### 1. Core Overview & Key Principles\n"
-            f"**{topic}** represents a specialized topic in modern computing, information systems, or technical knowledge. "
-            f"When building or studying systems around this domain, key components interact to ensure modularity, scalability, and robust performance.\n\n"
-            f"#### 2. Architecture & Implementation Guidelines\n"
-            f"- **Security First:** Enforce input verification, rate limiting, and zero-trust perimeter defenses.\n"
-            f"- **Performance Optimization:** Maximize throughput using asynchronous queues, caching, and vector indexing.\n"
-            f"- **Reliability:** Implement fault-tolerant fallbacks, health probes, and structured error logging.\n\n"
-            f"#### 3. Recommended Next Steps\n"
-            f"You can ask for specific code implementations, architectural deep-dives, or security audit procedures for **{topic}**.\n\n"
-            f"*(Generated by LLM Security Gateway Dual-Detector Intelligence & Local Knowledge Engine)*"
-        )
-        return {"type": "text", "content": text_out}
+        return {
+            "type": "text",
+            "content": f"### 💡 AI Intelligence Gateway\n\nVerified request: `ALLOW (200 OK)`.\n\nTo generate custom conversational answers and dynamic code for **{topic}**, please ensure your Groq Cloud API key is active in `.streamlit/secrets.toml`."
+        }
 
 # ---------------------------------------------------------
 # 8. DARK LEFT SIDEBAR (NAVIGATION & CONTROLS)
@@ -2530,12 +2544,12 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
 
     with head_col3:
         ai_engine_options = [
-            "Groq Cloud API (Ultra-Fast LLM)",
+            "Groq: GPT-OSS 20B (Ultra-Fast ⚡)",
+            "Groq: GPT-OSS 120B (Deep Reasoning 🧠)",
             "Ollama (llama3.2 Local)",
-            "Fast Semantic Guardrail Engine",
-            "OpenAI (GPT-4o Text)"
+            "Fast Semantic Guardrail Engine"
         ]
-        curr_ai_engine = st.session_state.get("selected_ai_engine", "Groq Cloud API (Ultra-Fast LLM)")
+        curr_ai_engine = st.session_state.get("selected_ai_engine", "Groq: GPT-OSS 20B (Ultra-Fast ⚡)")
         ai_idx = ai_engine_options.index(curr_ai_engine) if curr_ai_engine in ai_engine_options else 0
         engine_choice = st.selectbox(
             "Select Model:",
