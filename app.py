@@ -309,6 +309,19 @@ st.markdown("""
     }
 
     /* Bottom Input Dock Bar */
+    div[data-testid="stChatInput"],
+    .stChatInput {
+        border: 2px solid #cbd5e1 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+        background: #ffffff !important;
+        margin-bottom: 0.4rem !important;
+    }
+    div[data-testid="stChatInput"]:focus-within,
+    .stChatInput:focus-within {
+        border-color: #2563eb !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+    }
     .dock-footer-text {
         text-align: center;
         font-size: 0.78rem;
@@ -2784,7 +2797,9 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
     # BOTTOM DOCKED INPUT BAR
     st.markdown("<hr style='margin: 10px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
-    user_prompt_input = st.chat_input("Type your prompt, question, or request here...")
+    dock_col, = st.columns([1])
+    with dock_col:
+        user_prompt_input = st.chat_input("Type your prompt, question, or request here...", key="dock_prompt_input")
 
     if user_prompt_input:
         prompt_to_run = user_prompt_input.strip()
