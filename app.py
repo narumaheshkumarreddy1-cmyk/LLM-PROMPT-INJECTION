@@ -1267,6 +1267,12 @@ ROUTER_INTENT_BENCHMARKS = [
     ("explain how image generation works", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("explain prompt injection attacks and defense strategies", INTENT_GENERAL_CHAT, ACTION_CHAT),
     ("what is malware and how do firewalls work", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("i need a python 30 days learning roadmap", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("i need 30 days python learning learning road map", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("give me a 30 day python learning roadmap", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("python 30 days learning curriculum", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("give me a roadmap to learn python from basics", INTENT_GENERAL_CHAT, ACTION_CHAT),
+    ("generate a 30 day python learning plan", INTENT_GENERAL_CHAT, ACTION_CHAT),
 
     # PROMPT_WRITING
     ("give me a prompt to generate a realistic red sports car", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
@@ -1274,7 +1280,6 @@ ROUTER_INTENT_BENCHMARKS = [
     ("give me a prompt for a car image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("give me a prompt for a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("give me a prompt that i can use to generate a bus image", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
-    ("give me a prompt for a python learning roadmap", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("write a midjourney prompt for a futuristic cyberpunk city", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("suggest a dall-e 3 prompt for a cozy coffee shop", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
     ("provide a detailed prompt for generating an image of a blue dragon", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
@@ -1294,9 +1299,6 @@ ROUTER_INTENT_BENCHMARKS = [
     ("create a realistic red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate a red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate a sunset beach", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
-    ("generate a 30 day python learning plan as an image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
-    ("now generate 30 day python learning as image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
-    ("generate a 30-day python learning roadmap", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("generate an image of a snake in a forest", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("draw a picture of an astronaut riding a horse on mars", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("render a 3d isometric cyberpunk bedroom", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
@@ -1341,7 +1343,19 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
     p_clean = user_prompt.strip()
     p_lower = p_clean.lower()
     
-    # 0. Explicit Mermaid diagram/code requests -> GENERAL_CHAT (Groq returns text/Mermaid diagram, NEVER image)
+    # 0. Educational Learning Roadmaps, Curricula, Tutorials, and Study Plans -> ALWAYS GENERAL_CHAT
+    if any(w in p_lower for w in ["roadmap", "road map", "curriculum", "study plan", "learning plan", "30 day", "30-day", "syllabus", "learning path", "study guide", "tutorial", "how to learn"]):
+        if not any(w in p_lower for w in ["give me a prompt", "write a prompt", "craft a prompt", "prompt for", "midjourney", "dall-e"]):
+            return {
+                "intent": INTENT_GENERAL_CHAT,
+                "confidence": 0.99,
+                "action": ACTION_CHAT,
+                "secondary_action": None,
+                "is_multi_action": False,
+                "reasoning": "User requested an educational learning roadmap or curriculum (text generation)."
+            }
+
+    # 0b. Explicit Mermaid diagram/code requests -> GENERAL_CHAT (Groq returns text/Mermaid diagram, NEVER image)
     if "mermaid" in p_lower:
         return {
             "intent": INTENT_GENERAL_CHAT,
@@ -1352,7 +1366,7 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
             "reasoning": "User explicitly requested Mermaid diagram code/syntax, handled as text generation."
         }
 
-    # 0b. Educational / Explanatory inquiries about image generation -> GENERAL_CHAT
+    # 0c. Educational / Explanatory inquiries about image generation -> GENERAL_CHAT
     is_educational_how = bool(re.search(r"^\b(how\s+(can|do|does|to)\s+(i|we|ai|dall-?e|midjourney)?\s*(generate|create|make|work))\b", p_lower) or re.search(r"\bexplain\s+how\s+(image\s+generation|ai\s+images?)\s+works?\b", p_lower) or re.search(r"\bhow\s+do\s+ai\s+image\s+generators?\s+work\b", p_lower))
     if is_educational_how and not any(w in p_lower for w in ["generate an image", "create an image", "draw an image"]):
         return {
@@ -1468,20 +1482,20 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
 
     # 6. Direct IMAGE_GENERATION Check (imperative to generate/create an image)
     if not is_educational_how:
-        if re.search(r"\b(generate|create|render|draw|produce|paint)\b.*\b(as\s+(an?\s+)?(image|photo|picture|wallpaper|render|illustration|portrait|infographic|diagram|roadmap))\b", p_lower):
+        if re.search(r"\b(generate|create|render|draw|produce|paint)\b.*\b(as\s+(an?\s+)?(image|photo|picture|wallpaper|render|illustration|portrait))\b", p_lower):
             return {
                 "intent": INTENT_IMAGE_GENERATION,
                 "confidence": 0.98,
                 "action": ACTION_GENERATE_IMAGE,
                 "secondary_action": None,
                 "is_multi_action": False,
-                "reasoning": "User explicitly commanded to generate/create content in an image or infographic format."
+                "reasoning": "User explicitly commanded to generate/create content in an image format."
             }
 
         image_gen_patterns = [
-            r"\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait|infographic|diagram|roadmap)\b",
-            r"\b(i\s+need|want|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait|infographic)\b",
-            r"^\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*.*?\b(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut|sunset|beach|sunrise|ocean|skyline|roadmap|infographic|learning\s+plan)\b",
+            r"\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
+            r"\b(i\s+need|want|give\s+me)\s+(an?|some)?\s*(realistic|photorealistic|cinematic|detailed|3d)?\s*(image|photo|picture|wallpaper|render|illustration|portrait)\b",
+            r"^\b(generate|create|render|draw|produce|paint)\s+(an?|some)?\s*.*?\b(car|bus|snake|dog|cat|bird|mountains?|city|forest|landscape|dragon|robot|astronaut|sunset|beach|sunrise|ocean|skyline)\b",
             r"\b(generate|create|draw|render)\s+a\s+realistic\s+[a-z\s]+(on|in|at|with)\b"
         ]
         if any(re.search(pat, p_lower) for pat in image_gen_patterns):
@@ -1650,6 +1664,9 @@ def resolve_semantic_routing(
 
 def is_image_request_prompt(prompt_text, history_messages=None):
     """Semantic check verifying whether prompt is exclusively an IMAGE_GENERATION action."""
+    p_low = (prompt_text or "").lower()
+    if any(w in p_low for w in ["roadmap", "road map", "curriculum", "study plan", "learning plan", "30 day", "30-day", "syllabus", "learning path", "study guide", "tutorial"]):
+        return False
     res = resolve_semantic_routing(prompt_text, history_messages)
     return res.get("intent") == INTENT_IMAGE_GENERATION and res.get("action") == ACTION_GENERATE_IMAGE
 
@@ -1935,7 +1952,8 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     effective_key = api_key or st.session_state.get("custom_api_key", "")
 
     # INTENT: PROMPT_WRITING or IMAGE_REQUEST (Return engineered prompt only, DO NOT generate images)
-    if intent in (INTENT_PROMPT_WRITING, INTENT_IMAGE_GENERATION):
+    is_study_roadmap = any(w in query_lower for w in ["roadmap", "road map", "curriculum", "study plan", "learning plan", "30 day", "30-day", "syllabus", "learning path", "study guide", "tutorial"])
+    if not is_study_roadmap and intent in (INTENT_PROMPT_WRITING, INTENT_IMAGE_GENERATION):
         prompt_output = craft_engineered_prompt(user_input, history_messages, engine_choice, effective_key)
         if security_res:
             security_res["original_user_prompt"] = user_input
@@ -2428,8 +2446,8 @@ st.sidebar.markdown('''
         <span style="color: #a78bfa; font-weight: 500;">Regex + Intent</span>
     </div>
     <div style="display: flex; justify-content: space-between;">
-        <span style="color: #cbd5e1; font-weight: 600;">📄 Multimodal</span>
-        <span style="color: #fbbf24; font-weight: 500;">PDF / Code / Img</span>
+        <span style="color: #cbd5e1; font-weight: 600;">⚡ Flagship AI</span>
+        <span style="color: #fbbf24; font-weight: 500;">GPT-OSS 120B</span>
     </div>
 </div>
 ''', unsafe_allow_html=True)
@@ -2521,7 +2539,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             c_d1 = st.checkbox("Layer 1: Heuristic Regex Signatures", value=st.session_state.get("enable_detector_1", True), key="u_chk_d1")
             c_d2 = st.checkbox("Layer 2: Scikit-Learn TF-IDF Vectors", value=st.session_state.get("enable_detector_2", True), key="u_chk_d2")
             c_d3 = st.checkbox("Layer 3: AI Security Judge", value=st.session_state.get("enable_detector_3", True), key="u_chk_d3")
-            c_d4 = st.checkbox("Layer 4: Multimodal File Scanner", value=st.session_state.get("enable_multimodal", True), key="u_chk_d4")
+            c_d4 = st.checkbox("Layer 4: OWASP Threat Guardrail", value=st.session_state.get("enable_multimodal", True), key="u_chk_d4")
 
             if (c_d1 != st.session_state.get("enable_detector_1") or
                 c_d2 != st.session_state.get("enable_detector_2") or
@@ -2766,27 +2784,18 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
     # BOTTOM DOCKED INPUT BAR
     st.markdown("<hr style='margin: 10px 0; border-color: #e2e8f0;'>", unsafe_allow_html=True)
 
-    dock_col1, dock_col2 = st.columns([1, 6])
+    user_prompt_input = st.chat_input("Type your prompt, question, or request here...")
 
-    with dock_col1:
-        uploaded_file = st.file_uploader("Upload File", type=["png", "jpg", "jpeg", "txt", "py", "csv", "json", "pdf"], label_visibility="collapsed")
-
-    with dock_col2:
-        user_prompt_input = st.chat_input("Type your message or upload a file...")
-
-    if user_prompt_input or uploaded_file:
-        file_text = ""
-        if uploaded_file:
-            file_text = f"Uploaded file: {uploaded_file.name}"
-        
-        prompt_to_run = user_prompt_input if user_prompt_input else file_text
+    if user_prompt_input:
+        prompt_to_run = user_prompt_input.strip()
+        uploaded_file = None
         
         if prompt_to_run:
             st.session_state.chat_history.append({"role": "user", "content": prompt_to_run})
             
             # Security Pipeline Execution
             res = aggregate_security_pipeline(prompt_to_run, engine_choice, api_key)
-            ans = generate_chatbot_answer(prompt_to_run, st.session_state.chat_history, engine_choice, api_key, res, uploaded_file=uploaded_file)
+            ans = generate_chatbot_answer(prompt_to_run, st.session_state.chat_history, engine_choice, api_key, res, uploaded_file=None)
             
             st.session_state.total_scanned += 1
             if res["action"] == "BLOCK":
