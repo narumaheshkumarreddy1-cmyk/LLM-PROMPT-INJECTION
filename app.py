@@ -702,6 +702,13 @@ def render_login_screen():
 
     login_tab, phone_tab = st.tabs(["🔑 Sign in with Google / Email", "📱 Phone Verification"])
     with login_tab:
+        if st.button("🚀 Enter AI Workspace (Instant Access)", type="primary", width="stretch"):
+            st.session_state.authenticated = True
+            st.session_state.auth_user = "guest_user@workspace.ai"
+            st.rerun()
+
+        st.markdown("<div style='text-align: center; color: #94a3b8; margin: 10px 0;'>or sign in with Google / Email</div>", unsafe_allow_html=True)
+
         if st.button("🌐 Continue with Google", type="secondary", width="stretch"):
             if google_auth_configured():
                 st.login("google")
