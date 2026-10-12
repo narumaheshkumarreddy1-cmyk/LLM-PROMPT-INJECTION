@@ -298,7 +298,7 @@ subject_test_cases = [
     ("Generate a red sports car", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("Create an image of a blue bus in a modern city", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("Generate a sunset beach", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
-    ("Generate a 30-day Python learning roadmap", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
+    ("Generate a 30-day Python learning roadmap as an image", INTENT_IMAGE_GENERATION, ACTION_GENERATE_IMAGE),
     ("Give me a prompt for a Python learning roadmap", INTENT_PROMPT_WRITING, ACTION_WRITE_PROMPT),
 ]
 

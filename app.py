@@ -279,6 +279,14 @@ st.markdown("""
         color: #dc2626;
         font-weight: 700;
     }
+    .check-item-warning {
+        color: #d97706;
+        font-weight: 600;
+    }
+    .check-item-muted {
+        color: #64748b;
+        font-weight: 500;
+    }
 
     .verdict-box-allow {
         background-color: #f0fdf4;
@@ -657,6 +665,9 @@ if "renaming_sid" not in st.session_state:
 if "trigger_print_sid" not in st.session_state:
     st.session_state.trigger_print_sid = None
 
+if "last_security_result" not in st.session_state:
+    st.session_state.last_security_result = None
+
 def google_auth_configured():
     try:
         auth_config = st.secrets["auth"]
@@ -751,41 +762,69 @@ if get_script_run_ctx() is not None and not st.session_state.authenticated:
     st.stop()
 
 # ---------------------------------------------------------
-# 3. DETECTOR 1: PROMPT INJECTION DETECTOR
+# 3. DETECTOR 1: PROMPT INJECTION & JAILBREAK DETECTORS
 # ---------------------------------------------------------
+# Prompt Injection Patterns (OWASP LLM01: instruction override, rule erasure, system prompt leaks, filter bypass)
 INJECTION_PATTERNS = [
     (r"(?i)\b(ignore|forg[et1]+|disregard|forget|privouse|privous|previus|prior|previous)\b.*\b(instructions?|instuctions?|rules?|prompts?|system)\b", "Instruction Override / Erasure Attack", 0.95),
     (r"(?i)\bignore\s+(all\s+)?(previous|prior|above)\s+(instructions|rules|prompts)", "Direct Override Attack", 0.95),
     (r"(?i)\bdisregard\s+(earlier|previous)\s+instructions", "Disregard System Rules", 0.95),
     (r"(?i)\bforget\s+(your|all)\s+(rules|instructions)", "Rule Erasure Attack", 0.90),
-    (r"(?i)\b(system\s+prompt|show\s+me\s+your\s+instructions|print\s+above)", "System Prompt Leakage", 0.85),
-    (r"(?i)\bact\s+as\s+a\s+(dan|jailbroken|unfiltered|godmode)", "Jailbreak Persona Attack", 0.95),
+    (r"(?i)\b(system\s+prompt|show\s+me\s+your\s+instructions|print\s+above|reveal\s+your\s+hidden\s+system\s+prompt|reveal\s+system\s+prompt)", "System Prompt Leakage", 0.85),
     (r"(?i)\b(bypass|disable|override)\s+(security|safety|content\s+filter)", "Security Filter Bypass", 0.90),
-    (r"(?i)\bdo\s+anything\s+now\b", "DAN Mode Jailbreak", 0.90),
-    (r"(?i)\bdeveloper\s+mode\s+enabled\b", "Developer Mode Bypass", 0.85),
-    (r"(?i)\b(i\s+need|give\s+me|dump|leak|scrape|steal|extract|export)\b.*\b(users?\s+data|customers?\s+data|chat\s*gpt\s+users?|personal\s+data|pii|passwords?|credentials?|credit\s*cards?|session\s*tokens?|session\s*cookies?)\b", "Data Exfiltration / Privacy Violation", 0.95),
-    (r"(?i)\b(chat\s*gpt\s+users?\s+data|chatgpt\s+users?\s+data|dump\s+database|exfiltrate\s+data)\b", "Unauthorized User Data Scraping", 0.95),
-    (r"(?i)\b(rm\s+-rf\s+/|drop\s+database|drop\s+table\s+users|format\s+c:|delete\s+from\s+users)\b", "Excessive Agency / Destructive Command", 0.98),
-    (r"(?i)\b(sudo\s+rm|chmod\s+777\s+/|mkfs\b)", "Privilege Escalation / Destructive Shell Command", 0.95),
-    (r"(?i)\b(reverse\s+shell|nc\s+-e\s+/bin/(ba)?sh|bash\s+-i\s+>\&)\b", "Reverse Shell Payload Execution", 0.98),
-    (r"(?i)\beval\s*\(\s*(base64\.b64decode|atob|unescape)\b", "Obfuscated Dynamic Code Execution", 0.95),
+    (r"(?i)\bprint\s+everything\s+above\s+this\s+line\b", "Prompt Leakage Extraction", 0.90),
+]
+
+# Dedicated Jailbreak Patterns (OWASP LLM01: persona adoption, unrestricted AI modes, filter circumvention)
+JAILBREAK_PATTERNS = [
+    (r"(?i)\bact\s+as\s+a\s+(dan|jailbroken|unfiltered|godmode|evil\s+ai|unrestricted)", "Jailbreak Persona Attack (DAN/Unrestricted)", 0.95),
+    (r"(?i)\bdo\s+anything\s+now\b", "DAN Mode Jailbreak", 0.95),
+    (r"(?i)\bdeveloper\s+mode\s+enabled\b", "Developer Mode Bypass", 0.90),
+    (r"(?i)\b(dan\s+mode|jailbreak\s+mode|godmode|unfiltered\s+mode)\b", "Jailbreak Persona Mode", 0.92),
+    (r"(?i)\b(you\s+are\s+no\s+longer\s+an\s+ai|you\s+have\s+no\s+rules|unrestricted\s+ai)\b", "Role Hijacking Jailbreak", 0.92),
+    (r"(?i)\b(simulate|roleplay\s+as)\s+(an?\s+)?(unfiltered|jailbroken|evil)\s+(ai|model|bot)", "Simulated Persona Bypass", 0.90),
 ]
 
 def scan_prompt_injection(user_input):
-    patterns = INJECTION_PATTERNS + st.session_state.get("custom_rules", [])
+    """
+    Evaluates whether the user input attempts to override instructions,
+    erase rules, leak system prompts, or bypass safety guardrails.
+    Returns: attack_detected, risk_score, attack_type, reason
+    """
+    patterns = INJECTION_PATTERNS + (st.session_state.get("custom_rules", []) if hasattr(st, "session_state") else [])
     for pattern, attack_name, score in patterns:
         if re.search(pattern, user_input):
             return {
                 "attack_detected": True,
                 "risk_score": score,
                 "attack_type": attack_name,
-                "reason": f"Detected pattern '{attack_name}'."
+                "reason": f"Detected prompt injection pattern: '{attack_name}'."
             }
     return {
         "attack_detected": False,
         "risk_score": 0.0,
-        "attack_type": "none",
-        "reason": "No Prompt Injection signatures detected."
+        "attack_type": "None",
+        "reason": "No prompt injection signatures detected."
+    }
+
+def scan_jailbreak_patterns(user_input):
+    """
+    Evaluates whether the user input attempts a jailbreak or persona override (DAN, Developer Mode, etc.).
+    Returns: attack_detected, risk_score, attack_type, reason
+    """
+    for pattern, attack_name, score in JAILBREAK_PATTERNS:
+        if re.search(pattern, user_input):
+            return {
+                "attack_detected": True,
+                "risk_score": score,
+                "attack_type": attack_name,
+                "reason": f"Detected jailbreak pattern: '{attack_name}'."
+            }
+    return {
+        "attack_detected": False,
+        "risk_score": 0.0,
+        "attack_type": "None",
+        "reason": "No jailbreak patterns detected."
     }
 
 def get_groq_client(api_key=None):
@@ -1175,25 +1214,239 @@ def scan_semantic_safety(user_input, engine_choice, api_key):
     }
 
 # ---------------------------------------------------------
-# 5. RISK AGGREGATOR ENGINE
+# 5. RISK AGGREGATOR ENGINE & CANONICAL SECURITY RESULT
 # ---------------------------------------------------------
-def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
-    enable_det1 = st.session_state.get("enable_detector_1", True)
-    enable_det2 = st.session_state.get("enable_detector_2", True)
-    enable_det3 = st.session_state.get("enable_detector_3", True)
+def normalize_security_score(val, default=0.0):
+    try:
+        score = float(val)
+        if score > 10.0:
+            score = score / 100.0
+        elif score > 1.0:
+            score = score / 10.0
+        return round(min(max(score, 0.0), 1.0), 2)
+    except Exception:
+        return default
 
+def create_canonical_security_result(user_prompt, inj_res=None, safety_res=None, jb_res=None, block_threshold=0.70, flag_threshold=0.30, engine_choice=""):
+    """
+    Constructs a single canonical security result object for each request.
+    Metrics:
+      - risk_score: Aggregated security risk (0.0 - 1.0)
+      - overall_risk_score: Aggregated security risk (0.0 - 1.0)
+      - safety_score: Inverse of risk (1.0 - overall_risk_score)
+      - injection_score: Prompt injection risk specifically (0.0 - 1.0)
+      - jailbreak_score: Jailbreak risk specifically (0.0 - 1.0)
+      - harmful_content_score: Harmful content risk specifically (0.0 - 1.0)
+      - injection_status: "Flagged" | "Clean" | "Not Evaluated" | "Error"
+      - harmful_content_status: "Flagged" | "Clean" | "Not Evaluated" | "Error"
+      - jailbreak_status: "Detected" | "Not Found" | "Not Evaluated" | "Error"
+      - policy_compliance_status: "Policy Violation / Blocked" | "Policy Warning Flagged" | "Compliant"
+    """
+    # Robust handling for missing or malformed detector results
+    inj_was_evaluated = inj_res is not None
+    harm_was_evaluated = safety_res is not None
+    jb_was_evaluated = jb_res is not None
+
+    if inj_res is None or not isinstance(inj_res, dict):
+        inj_res = {
+            "attack_detected": False,
+            "attack_type": "None",
+            "risk_score": 0.0,
+            "status": "NOT_EVALUATED" if not inj_was_evaluated else "ERROR",
+            "reason": "Prompt injection detector was not evaluated." if not inj_was_evaluated else "Prompt injection detector returned invalid result."
+        }
+    if safety_res is None or not isinstance(safety_res, dict):
+        safety_res = {
+            "label": "SAFE",
+            "category": "BENIGN",
+            "intent": "General Query",
+            "risk_score": 0.0,
+            "confidence": 0.50,
+            "status": "NOT_EVALUATED" if not harm_was_evaluated else "ERROR",
+            "reason": "Semantic safety detector was not evaluated." if not harm_was_evaluated else "Semantic safety detector returned invalid result."
+        }
+    if jb_res is None or not isinstance(jb_res, dict):
+        jb_res = {
+            "attack_detected": False,
+            "attack_type": "None",
+            "risk_score": 0.0,
+            "status": "NOT_EVALUATED" if not jb_was_evaluated else "ERROR",
+            "reason": "Jailbreak detector was not evaluated." if not jb_was_evaluated else "Jailbreak detector returned invalid result."
+        }
+
+    inj_score = normalize_security_score(inj_res.get("risk_score", 0.0))
+    harm_score = normalize_security_score(safety_res.get("risk_score", 0.0))
+    jb_score = normalize_security_score(jb_res.get("risk_score", 0.0))
+
+    # Aggregated / Overall risk is the maximum risk observed across evaluated detectors
+    overall_risk = round(max(inj_score, harm_score, jb_score), 2)
+    risk_score = overall_risk
+
+    # Safety score is strictly defined as the inverse of overall risk
+    safety_score = round(max(0.0, min(1.0, 1.0 - overall_risk)), 2)
+
+    safety_label = str(safety_res.get("label", "SAFE")).upper()
+    inj_detected = bool(inj_res.get("attack_detected", False))
+    jb_detected = bool(jb_res.get("attack_detected", False))
+
+    # Determine individual indicator status strings
+    # 1. Prompt Injection Status: "Flagged" | "Clean" | "Not Evaluated" | "Error"
+    if inj_res.get("status") == "NOT_EVALUATED":
+        injection_status = "Not Evaluated"
+    elif inj_res.get("status") == "ERROR" or inj_res.get("attack_type") == "Error":
+        injection_status = "Error"
+    elif inj_detected or inj_score >= block_threshold:
+        injection_status = "Flagged"
+    else:
+        injection_status = "Clean"
+
+    # 2. Harmful Content Status: "Flagged" | "Clean" | "Not Evaluated" | "Error"
+    if safety_res.get("status") == "NOT_EVALUATED":
+        harmful_content_status = "Not Evaluated"
+    elif safety_res.get("status") == "ERROR" or safety_res.get("category") == "Error":
+        harmful_content_status = "Error"
+    elif safety_label == "UNSAFE" or harm_score >= block_threshold:
+        harmful_content_status = "Flagged"
+    else:
+        harmful_content_status = "Clean"
+
+    # 3. Jailbreak Patterns Status: "Detected" | "Not Found" | "Not Evaluated" | "Error"
+    if jb_res.get("status") == "NOT_EVALUATED":
+        jailbreak_status = "Not Evaluated"
+    elif jb_res.get("status") == "ERROR" or jb_res.get("attack_type") == "Error":
+        jailbreak_status = "Error"
+    elif jb_detected or jb_score >= block_threshold:
+        jailbreak_status = "Detected"
+    else:
+        jailbreak_status = "Not Found"
+
+    # Policy decision derivation based on canonical evaluation
+    if jb_detected or jb_score >= block_threshold:
+        decision = "BLOCK"
+        threat_category = jb_res.get("attack_type", "JAILBREAK_ATTACK")
+        detection_reason = f"Blocked by Jailbreak Guardrail: {jb_res.get('reason', 'Jailbreak pattern detected.')}"
+        policy_compliance_status = "Policy Violation / Blocked"
+    elif inj_detected or inj_score >= block_threshold:
+        decision = "BLOCK"
+        threat_category = inj_res.get("attack_type", "PROMPT_INJECTION / INSTRUCTION_OVERRIDE")
+        detection_reason = f"Blocked by Prompt Injection Detector: {inj_res.get('reason', 'Prompt injection signature detected.')}"
+        policy_compliance_status = "Policy Violation / Blocked"
+    elif safety_label == "UNSAFE" or harm_score >= block_threshold:
+        decision = "BLOCK"
+        threat_category = safety_res.get("category", "CYBER_ABUSE / MALWARE_GENERATION")
+        detection_reason = f"Blocked by Semantic Safety Firewall: [{threat_category}] {safety_res.get('reason', 'Malicious intent detected.')}"
+        policy_compliance_status = "Policy Violation / Blocked"
+    elif abs(inj_score - harm_score) >= 0.40 and overall_risk >= flag_threshold:
+        decision = "FLAG"
+        threat_category = "DETECTOR_DISAGREEMENT"
+        detection_reason = f"Detector disagreement flagged for telemetry audit (Injection: {inj_score:.2f}, Harm: {harm_score:.2f})."
+        policy_compliance_status = "Policy Warning Flagged"
+    elif overall_risk >= flag_threshold:
+        decision = "FLAG"
+        threat_category = safety_res.get("category", "SUSPICIOUS_CONTENT")
+        detection_reason = "Suspicious request structure flagged for security audit."
+        policy_compliance_status = "Policy Warning Flagged"
+    else:
+        decision = "ALLOW"
+        threat_category = safety_res.get("category", "BENIGN")
+        detection_reason = "Verified clean by all security detectors."
+        policy_compliance_status = "Compliant"
+
+    detected_intent = safety_res.get("intent", "General Query")
+
+    detector_results = {
+        "detector_1_regex": inj_res,
+        "detector_2_semantic": safety_res,
+        "detector_jailbreak": jb_res,
+        "injection_risk": inj_score,
+        "harmful_content_risk": harm_score,
+        "jailbreak_risk": jb_score
+    }
+
+    scan_record = {
+        # Canonical security result keys
+        "risk_score": risk_score,
+        "safety_score": safety_score,
+        "injection_score": inj_score,
+        "jailbreak_score": jb_score,
+        "harmful_content_score": harm_score,
+        "overall_risk_score": overall_risk,
+        "decision": decision,
+        "threat_category": threat_category,
+        "detection_reason": detection_reason,
+        "detector_results": detector_results,
+        "original_prompt": user_prompt,
+        "detected_intent": detected_intent,
+
+        # Explicit indicator statuses for UI
+        "injection_status": injection_status,
+        "harmful_content_status": harmful_content_status,
+        "jailbreak_status": jailbreak_status,
+        "policy_compliance_status": policy_compliance_status,
+
+        # Backwards-compatibility and telemetry keys
+        "action": decision,
+        "security_decision": decision,
+        "inj_detected": inj_detected,
+        "jb_detected": jb_detected,
+        "inj_score": inj_score,
+        "inj_reason": inj_res.get("reason", ""),
+        "safety_label": safety_label,
+        "semantic_category": threat_category,
+        "intent": detected_intent,
+        "harm_score": harm_score,
+        "confidence": safety_res.get("confidence", 0.95),
+        "harm_reason": safety_res.get("reason", ""),
+        "selected_provider_model": engine_choice,
+        "final_action": "BLOCK_REQUEST" if decision == "BLOCK" else "PENDING_ROUTING",
+        "reason": detection_reason,
+        "prompt": user_prompt,
+        "original_user_prompt": user_prompt,
+        "image_generation_prompt": "PENDING_ROUTING",
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    return scan_record
+
+def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
+    enable_det1 = st.session_state.get("enable_detector_1", True) if hasattr(st, "session_state") else True
+    enable_det2 = st.session_state.get("enable_detector_2", True) if hasattr(st, "session_state") else True
+    enable_det3 = st.session_state.get("enable_detector_3", True) if hasattr(st, "session_state") else True
+
+    block_thresh = st.session_state.get("block_threshold", 0.70) if hasattr(st, "session_state") else 0.70
+    flag_thresh = st.session_state.get("flag_threshold", 0.30) if hasattr(st, "session_state") else 0.30
+
+    # 1. Prompt Injection Detector (Detector 1)
     if enable_det1:
-        inj_res = scan_prompt_injection(user_prompt)
+        try:
+            inj_res = scan_prompt_injection(user_prompt)
+            inj_res["status"] = "FLAGGED" if inj_res.get("attack_detected") else "CLEAN"
+        except Exception as e:
+            inj_res = {"attack_detected": False, "attack_type": "Error", "risk_score": 0.0, "status": "ERROR", "reason": f"Detector 1 error: {e}"}
     else:
         inj_res = {
             "attack_detected": False,
             "attack_type": "None",
             "risk_score": 0.0,
+            "status": "NOT_EVALUATED",
             "reason": "Detector 1 (Heuristic Regex) disabled by user preference."
         }
 
+    # 2. Jailbreak Pattern Detector
+    try:
+        jb_res = scan_jailbreak_patterns(user_prompt)
+        jb_res["status"] = "DETECTED" if jb_res.get("attack_detected") else "NOT_FOUND"
+    except Exception as e:
+        jb_res = {"attack_detected": False, "attack_type": "Error", "risk_score": 0.0, "status": "ERROR", "reason": f"Jailbreak detector error: {e}"}
+
+    # 3. Harmful Content & Semantic Safety Classifier (Detector 2 & 3)
     if enable_det2 or enable_det3:
-        safety_res = scan_semantic_safety(user_prompt, engine_choice, api_key)
+        try:
+            safety_res = scan_semantic_safety(user_prompt, engine_choice, api_key)
+            is_unsafe = str(safety_res.get("label", "SAFE")).upper() == "UNSAFE" or safety_res.get("risk_score", 0.0) >= block_thresh
+            safety_res["status"] = "FLAGGED" if is_unsafe else "CLEAN"
+        except Exception as e:
+            safety_res = {"label": "SAFE", "category": "Error", "intent": "General Query", "risk_score": 0.0, "confidence": 0.5, "status": "ERROR", "reason": f"Detector 2 error: {e}"}
     else:
         safety_res = {
             "label": "SAFE",
@@ -1201,56 +1454,23 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
             "intent": "General Query",
             "risk_score": 0.0,
             "confidence": 1.0,
+            "status": "NOT_EVALUATED",
             "reason": "Detector 2 & 3 (Semantic & AI Judge) disabled by user preference."
         }
-    
-    inj_score = inj_res["risk_score"]
-    harm_score = safety_res["risk_score"]
-    aggregated_risk = round(max(inj_score, harm_score), 2)
-    
-    block_thresh = st.session_state.get("block_threshold", 0.70)
-    flag_thresh = st.session_state.get("flag_threshold", 0.30)
-    
-    if safety_res["label"] == "UNSAFE" or harm_score >= block_thresh:
-        action = "BLOCK"
-        reason = f"Blocked by Semantic Safety Firewall: [{safety_res['category']}] {safety_res['reason']}"
-    elif inj_res["attack_detected"] or inj_score >= block_thresh:
-        action = "BLOCK"
-        reason = f"Blocked by Prompt Injection Detector: {inj_res['reason']}"
-    elif abs(inj_score - harm_score) >= 0.40 and aggregated_risk >= flag_thresh:
-        action = "FLAG"
-        reason = "Detector disagreement flagged for telemetry audit."
-    elif aggregated_risk >= flag_thresh:
-        action = "FLAG"
-        reason = "Suspicious request structure flagged for security audit."
-    else:
-        action = "ALLOW"
-        reason = "Verified clean by all security detectors."
 
-    scan_record = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "prompt": user_prompt,
-        "original_user_prompt": user_prompt,
-        "image_generation_prompt": "PENDING_ROUTING",
-        "action": action,
-        "security_decision": action,
-        "risk_score": aggregated_risk,
-        "inj_detected": inj_res["attack_detected"],
-        "inj_score": inj_score,
-        "inj_reason": inj_res["reason"],
-        "safety_label": safety_res["label"],
-        "semantic_category": safety_res["category"],
-        "intent": safety_res["intent"],
-        "detected_intent": safety_res["intent"],
-        "harm_score": harm_score,
-        "confidence": safety_res["confidence"],
-        "harm_reason": safety_res["reason"],
-        "selected_provider_model": engine_choice,
-        "final_action": "BLOCK_REQUEST" if action == "BLOCK" else "PENDING_ROUTING",
-        "reason": reason
-    }
+    scan_record = create_canonical_security_result(
+        user_prompt=user_prompt,
+        inj_res=inj_res,
+        safety_res=safety_res,
+        jb_res=jb_res,
+        block_threshold=block_thresh,
+        flag_threshold=flag_thresh,
+        engine_choice=engine_choice
+    )
     
-    st.session_state.audit_history.append(scan_record)
+    if hasattr(st, "session_state") and "audit_history" in st.session_state:
+        st.session_state.audit_history.append(scan_record)
+        st.session_state.last_security_result = scan_record
 
     return scan_record
 
@@ -1362,9 +1582,13 @@ def classify_intent_fallback(user_prompt: str, history_messages=None, has_file: 
     p_clean = user_prompt.strip()
     p_lower = p_clean.lower()
     
-    # 0. Educational Learning Roadmaps, Curricula, Tutorials, and Study Plans -> ALWAYS GENERAL_CHAT
+    # 0. Educational Learning Roadmaps, Curricula, Tutorials, and Study Plans -> ALWAYS GENERAL_CHAT (unless explicitly requested as an image)
+    is_explicit_image_command = bool(
+        re.search(r"\b(as\s+(an?\s+)?image|in\s+(an?\s+)?image|image\s+format|as\s+a\s+picture|image\s+of|picture\s+of)\b", p_lower) or
+        re.search(r"\b(generate|create|render|draw)\s+(an?\s+)?image\b", p_lower)
+    )
     if any(w in p_lower for w in ["roadmap", "road map", "curriculum", "study plan", "learning plan", "30 day", "30-day", "syllabus", "learning path", "study guide", "tutorial", "how to learn"]):
-        if not any(w in p_lower for w in ["give me a prompt", "write a prompt", "craft a prompt", "prompt for", "midjourney", "dall-e"]):
+        if not is_explicit_image_command and not any(w in p_lower for w in ["give me a prompt", "write a prompt", "craft a prompt", "prompt for", "midjourney", "dall-e"]):
             return {
                 "intent": INTENT_GENERAL_CHAT,
                 "confidence": 0.99,
@@ -1785,9 +2009,20 @@ def extract_subject_and_build_image_prompt(user_prompt: str, history_messages=No
 
 def generate_ai_image(prompt_text, api_key=None, history_messages=None):
     """
-    Image generation is disabled in this prompt gateway.
+    Image generation is disabled in this prompt gateway, or returns notice if unconfigured provider selected.
     Returns the engineered prompt so the user receives a high-quality prompt rather than an image.
     """
+    if hasattr(st, "session_state") and st.session_state.get("selected_image_engine") == "OpenAI DALL-E 3 (Cloud HD)":
+        oai_key = api_key or get_openai_image_key()
+        if not oai_key:
+            return {
+                "type": "text",
+                "content": "Image generation is not configured. Please configure an image-generation provider/API key.",
+                "original_user_prompt": prompt_text,
+                "image_generation_prompt": "N/A",
+                "subject": prompt_text
+            }
+
     subject, enhanced_prompt = extract_subject_and_build_image_prompt(prompt_text, history_messages)
     crafted = craft_engineered_prompt(prompt_text, history_messages, api_key=api_key)
     return {
@@ -1898,19 +2133,18 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
     query_lower = user_input.lower().strip()
 
     # 1. Strict Security Decision Pre-Check: If BLOCK -> STOP immediately!
-    if security_res and security_res.get("action") == "BLOCK":
-        guidance = generate_proper_ai_guidance(
-            user_input,
-            security_res.get("semantic_category", "SECURITY_POLICY_VIOLATION"),
-            security_res.get("reason", "Security rule triggered.")
-        )
+    if security_res and (security_res.get("decision") == "BLOCK" or security_res.get("action") == "BLOCK"):
+        cat_disp = security_res.get("threat_category", security_res.get("semantic_category", "SECURITY_POLICY_VIOLATION"))
+        reason_disp = security_res.get("detection_reason", security_res.get("reason", "Security rule triggered."))
+        risk_disp = security_res.get("overall_risk_score", security_res.get("risk_score", 0.95))
+        guidance = generate_proper_ai_guidance(user_input, cat_disp, reason_disp)
         return {
             "type": "text",
             "content": f"🛑 **Security Policy Violation (HTTP 403 Blocked)**\n\n"
                        f"Your prompt was intercepted and blocked by the **LLM Security Gateway**.\n\n"
-                       f"- **Threat Category:** `{security_res.get('semantic_category', 'SECURITY_POLICY_VIOLATION')}`\n"
-                       f"- **Assigned Risk Score:** `{security_res.get('risk_score', 0.95):.2f}`\n"
-                       f"- **Detection Reason:** {security_res.get('reason', 'Security rule triggered.')}\n\n"
+                       f"- **Threat Category:** `{cat_disp}`\n"
+                       f"- **Assigned Risk Score:** `{risk_disp:.2f}`\n"
+                       f"- **Detection Reason:** {reason_disp}\n\n"
                        f"---\n\n"
                        f"{guidance}\n\n"
                        f"---\n"
@@ -2341,11 +2575,24 @@ st.sidebar.markdown('''
 <div class="sidebar-subbrand">Prompt Injection Protection</div>
 ''', unsafe_allow_html=True)
 
+def select_chat_session(sid):
+    st.session_state.current_session_id = sid
+    h = list(st.session_state.sessions.get(sid, {}).get("history", []))
+    st.session_state.chat_history = h
+    last_sec = None
+    for m in reversed(h):
+        if m.get("role") == "assistant" and m.get("res"):
+            last_sec = m["res"]
+            break
+    st.session_state.last_security_result = last_sec
+    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
+
 # Prominent Blue + New Chat Button
 if st.sidebar.button("➕ New Chat", type="primary", width="stretch"):
     new_sid = f"sess_{int(time.time())}"
     st.session_state.current_session_id = new_sid
     st.session_state.chat_history = []
+    st.session_state.last_security_result = None
     st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
     st.rerun()
 
@@ -2394,9 +2641,7 @@ else:
         with p_col1:
             label = s_title if not is_active else f"🟢 {s_title}"
             if st.button(label, key=f"pin_open_{sid}", width="stretch", help=f"Open: {s_title}"):
-                st.session_state.current_session_id = sid
-                st.session_state.chat_history = list(sdata.get("history", []))
-                st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
+                select_chat_session(sid)
                 st.rerun()
         with p_col2:
             with st.popover("⋯", help="Options"):
@@ -2408,15 +2653,14 @@ else:
                     st.session_state.renaming_sid = sid
                     st.rerun()
                 if st.button("🖨️ Print Chat", key=f"pop_prn_p_{sid}", width="stretch"):
-                    st.session_state.current_session_id = sid
-                    st.session_state.chat_history = list(sdata.get("history", []))
-                    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
+                    select_chat_session(sid)
                     st.session_state.trigger_print_sid = sid
                     st.rerun()
                 if st.button("🗑️ Delete", key=f"pop_del_p_{sid}", width="stretch"):
                     del st.session_state.sessions[sid]
                     if st.session_state.current_session_id == sid:
                         st.session_state.chat_history = []
+                        st.session_state.last_security_result = None
                         st.session_state.current_session_id = f"sess_{int(time.time())}"
                     st.rerun()
 
@@ -2436,9 +2680,7 @@ else:
         with r_col1:
             label = s_title if not is_active else f"🟢 {s_title}"
             if st.button(label, key=f"rec_open_{sid}", width="stretch", help=f"Open: {s_title} ({s_time})"):
-                st.session_state.current_session_id = sid
-                st.session_state.chat_history = list(sdata.get("history", []))
-                st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
+                select_chat_session(sid)
                 st.rerun()
         with r_col2:
             with st.popover("⋯", help="Options"):
@@ -2450,15 +2692,14 @@ else:
                     st.session_state.renaming_sid = sid
                     st.rerun()
                 if st.button("🖨️ Print Chat", key=f"pop_prn_r_{sid}", width="stretch"):
-                    st.session_state.current_session_id = sid
-                    st.session_state.chat_history = list(sdata.get("history", []))
-                    st.session_state.nav_choice = "💬 AI Assistant & Security Gateway"
+                    select_chat_session(sid)
                     st.session_state.trigger_print_sid = sid
                     st.rerun()
                 if st.button("🗑️ Delete", key=f"pop_del_r_{sid}", width="stretch"):
                     del st.session_state.sessions[sid]
                     if st.session_state.current_session_id == sid:
                         st.session_state.chat_history = []
+                        st.session_state.last_security_result = None
                         st.session_state.current_session_id = f"sess_{int(time.time())}"
                     st.rerun()
 
@@ -2563,6 +2804,7 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
                 if cur_id in st.session_state.sessions:
                     del st.session_state.sessions[cur_id]
                 st.session_state.chat_history = []
+                st.session_state.last_security_result = None
                 st.session_state.current_session_id = f"sess_{int(time.time())}"
                 st.rerun()
 
@@ -2662,8 +2904,20 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
     # Main Canvas: Center Execution Column (65%) & Right Analysis Panel (35%)
     center_canvas, right_panel = st.columns([1.8, 1])
 
-    latest_res = None
+    # Determine latest active security result and prompt from session state / chat history
+    active_res = st.session_state.get("last_security_result")
     active_prompt_text = "Welcome to AI Assistant"
+
+    for msg in st.session_state.chat_history:
+        if msg.get("role") == "user":
+            active_prompt_text = msg.get("content", "")
+        elif msg.get("role") == "assistant" and msg.get("res"):
+            active_res = msg.get("res")
+
+    if active_res:
+        st.session_state.last_security_result = active_res
+        if active_res.get("original_prompt"):
+            active_prompt_text = active_res["original_prompt"]
 
     with center_canvas:
         # Render Conversation Messages & Execution Cards
@@ -2682,7 +2936,6 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             # Dynamic Chat & Execution History
             for msg in st.session_state.chat_history:
                 if msg["role"] == "user":
-                    active_prompt_text = msg['content']
                     st.markdown(f'''
                     <div class="user-msg-bubble">
                         {html.escape(msg['content'])}
@@ -2691,34 +2944,39 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
                     ''', unsafe_allow_html=True)
                 elif msg["role"] == "assistant":
                     res = msg.get("res", {})
-                    latest_res = res
                     
-                    action_val = res.get("action", "ALLOW")
+                    action_val = res.get("decision", res.get("action", "ALLOW"))
                     action_color = "#16a34a" if action_val == "ALLOW" else ("#f59e0b" if action_val == "FLAG" else "#dc2626")
                     verdict_status = "Security Check Passed" if action_val == "ALLOW" else ("Security Warning Flagged" if action_val == "FLAG" else "Security Threat Blocked")
+                    
+                    card_risk_score = res.get("overall_risk_score", res.get("risk_score", 0.0))
+                    card_inj_score = res.get("injection_score", res.get("inj_score", 0.0))
+                    card_safety_score = res.get("safety_score", round(max(0.0, min(1.0, 1.0 - card_risk_score)), 2))
+                    card_intent = res.get("detected_intent", res.get("intent", "General"))
+                    card_reason = res.get("detection_reason", res.get("reason", "Payload evaluated cleanly."))
                     
                     st.markdown(f'''
                     <div class="security-check-card" style="border-left: 5px solid {action_color};">
                         <div class="security-check-header" style="color: {action_color};">
                             <span>✔</span> {verdict_status}
                         </div>
-                        <div class="security-check-sub">Status: {res.get("reason", "Payload evaluated cleanly.")}</div>
+                        <div class="security-check-sub">Status: {html.escape(card_reason)}</div>
                         <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px;">
                             <div class="badge-metric-box">
                                 <div class="badge-metric-label">Intent</div>
-                                <div class="badge-metric-val" style="font-size: 0.8rem;">{res.get("intent", "General")}</div>
+                                <div class="badge-metric-val" style="font-size: 0.8rem;">{html.escape(card_intent)}</div>
                             </div>
                             <div class="badge-metric-box">
                                 <div class="badge-metric-label">Risk Score</div>
-                                <div class="badge-metric-val" style="color: {action_color};">{res.get("risk_score", 0.0):.2f}</div>
+                                <div class="badge-metric-val" style="color: {action_color};">{card_risk_score:.2f}</div>
                             </div>
                             <div class="badge-metric-box">
                                 <div class="badge-metric-label">Injection Score</div>
-                                <div class="badge-metric-val">{res.get("inj_score", 0.0):.2f}</div>
+                                <div class="badge-metric-val">{card_inj_score:.2f}</div>
                             </div>
                             <div class="badge-metric-box">
                                 <div class="badge-metric-label">Safety Score</div>
-                                <div class="badge-metric-val">{res.get("harm_score", 0.0):.2f}</div>
+                                <div class="badge-metric-val">{card_safety_score:.2f}</div>
                             </div>
                             <div class="badge-metric-box">
                                 <div class="badge-metric-label">Decision</div>
@@ -2740,28 +2998,64 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
 
     # DYNAMIC RIGHT PANEL: SECURITY ANALYSIS & PROMPT DETAILS
     with right_panel:
-        res_disp = latest_res if latest_res else {
-            "action": "ALLOW",
-            "risk_score": 0.00,
-            "inj_score": 0.00,
-            "harm_score": 0.00,
-            "inj_detected": False,
-            "safety_label": "SAFE",
-            "intent": "GENERAL_CHAT",
-            "semantic_category": "BENIGN_INQUIRY",
-            "reason": "Verified clean by all security detectors."
-        }
+        if active_res:
+            res_disp = active_res
+        else:
+            res_disp = {
+                "decision": "ALLOW",
+                "action": "ALLOW",
+                "risk_score": 0.00,
+                "overall_risk_score": 0.00,
+                "safety_score": 1.00,
+                "injection_score": 0.00,
+                "jailbreak_score": 0.00,
+                "harmful_content_score": 0.00,
+                "inj_score": 0.00,
+                "harm_score": 0.00,
+                "inj_detected": False,
+                "jb_detected": False,
+                "injection_status": "Clean",
+                "harmful_content_status": "Clean",
+                "jailbreak_status": "Not Found",
+                "policy_compliance_status": "Compliant",
+                "safety_label": "SAFE",
+                "intent": "GENERAL_CHAT",
+                "detected_intent": "GENERAL_CHAT",
+                "threat_category": "BENIGN",
+                "semantic_category": "BENIGN_INQUIRY",
+                "detection_reason": "System ready. No security threats detected.",
+                "reason": "System ready. No security threats detected.",
+                "original_prompt": active_prompt_text,
+                "detector_results": {}
+            }
         
-        act_val = res_disp.get("action", "ALLOW")
-        risk_val = res_disp.get("risk_score", 0.02)
-        risk_pct = int(min(risk_val * 100, 100))
+        act_val = res_disp.get("decision", res_disp.get("action", "ALLOW"))
+        risk_val = res_disp.get("overall_risk_score", res_disp.get("risk_score", 0.0))
+        risk_pct = int(min(max(risk_val, 0.0) * 100, 100))
         act_color = "#16a34a" if act_val == "ALLOW" else ("#f59e0b" if act_val == "FLAG" else "#dc2626")
-        
-        inj_status_class = "check-item-clean" if not res_disp.get("inj_detected") else "check-item-unsafe"
-        inj_status_text = "Clean" if not res_disp.get("inj_detected") else "Attack Detected"
-        
-        harm_status_class = "check-item-clean" if res_disp.get("safety_label") == "SAFE" else "check-item-unsafe"
-        harm_status_text = "Clean" if res_disp.get("safety_label") == "SAFE" else "Unsafe Content"
+
+        # Render canonical indicator statuses
+        inj_status_text = res_disp.get("injection_status", "Clean")
+        harm_status_text = res_disp.get("harmful_content_status", "Clean")
+        jb_status_text = res_disp.get("jailbreak_status", "Not Found")
+        policy_status_text = res_disp.get("policy_compliance_status", "Compliant")
+
+        # Map to CSS styling classes
+        def _get_badge_class(status):
+            status_lower = str(status).lower()
+            if status_lower in ["clean", "not found", "compliant"]:
+                return "check-item-clean"
+            elif status_lower in ["flagged", "detected", "policy violation / blocked", "error"]:
+                return "check-item-unsafe"
+            elif status_lower in ["warning flagged", "policy warning flagged"]:
+                return "check-item-warning"
+            else:  # "not evaluated" or unknown
+                return "check-item-muted"
+
+        inj_status_class = _get_badge_class(inj_status_text)
+        harm_status_class = _get_badge_class(harm_status_text)
+        jb_status_class = _get_badge_class(jb_status_text)
+        policy_status_class = _get_badge_class(policy_status_text)
 
         st.markdown(f'''
         <div class="analysis-panel-card">
@@ -2778,11 +3072,11 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             </div>
             <div class="check-item-row">
                 <span>✔ Jailbreak Patterns</span>
-                <span class="check-item-clean">Not Found</span>
+                <span class="{jb_status_class}">{jb_status_text}</span>
             </div>
             <div class="check-item-row">
                 <span>✔ Policy Compliance</span>
-                <span class="check-item-clean">Compliant</span>
+                <span class="{policy_status_class}">{policy_status_text}</span>
             </div>
             <div style="margin-top: 1rem;">
                 <div style="display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 600;">
@@ -2797,12 +3091,15 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
                 <div style="font-weight: 800; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
                     <span>✔</span> {act_val}
                 </div>
-                <div style="font-size: 0.82rem; margin-top: 2px;">{html.escape(res_disp.get("reason", "Evaluated cleanly.")) }</div>
+                <div style="font-size: 0.82rem; margin-top: 2px;">{html.escape(res_disp.get("detection_reason", res_disp.get("reason", "Evaluated cleanly.")))}</div>
             </div>
         </div>
         ''', unsafe_allow_html=True)
 
-        intent_disp = res_disp.get("intent", "General Query")
+        disp_prompt = res_disp.get("original_prompt", active_prompt_text)
+        disp_intent = res_disp.get("detected_intent", res_disp.get("intent", "General Query"))
+        disp_category = res_disp.get("threat_category", res_disp.get("semantic_category", "BENIGN"))
+        disp_time = res_disp.get("timestamp", datetime.datetime.now().strftime("%b %d, %Y, %I:%M:%S %p"))
 
         st.markdown(f'''
         <div class="analysis-panel-card">
@@ -2811,11 +3108,11 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             </div>
             <div style="margin-bottom: 0.8rem;">
                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Prompt</div>
-                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{html.escape(active_prompt_text)}</div>
+                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{html.escape(disp_prompt)}</div>
             </div>
             <div style="margin-bottom: 0.8rem;">
                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Detected Intent</div>
-                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{intent_disp}</div>
+                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{html.escape(disp_intent)}</div>
             </div>
             <div style="margin-bottom: 0.8rem;">
                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Model Used</div>
@@ -2823,11 +3120,11 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             </div>
             <div style="margin-bottom: 0.8rem;">
                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Category</div>
-                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{res_disp.get("semantic_category", "BENIGN")}</div>
+                <div style="font-size: 0.9rem; font-weight: 600; color: #0f172a;">{html.escape(disp_category)}</div>
             </div>
             <div>
                 <div style="font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Timestamp</div>
-                <div style="font-size: 0.85rem; color: #475569;">{datetime.datetime.now().strftime("%b %d, %Y, %I:%M:%S %p")}</div>
+                <div style="font-size: 0.85rem; color: #475569;">{disp_time}</div>
             </div>
         </div>
         ''', unsafe_allow_html=True)
@@ -2848,12 +3145,14 @@ if nav_choice == "💬 AI Assistant & Security Gateway":
             
             # Security Pipeline Execution
             res = aggregate_security_pipeline(prompt_to_run, engine_choice, api_key)
+            st.session_state.last_security_result = res
+            
             ans = generate_chatbot_answer(prompt_to_run, st.session_state.chat_history, engine_choice, api_key, res, uploaded_file=None)
             
             st.session_state.total_scanned += 1
-            if res["action"] == "BLOCK":
+            if res.get("decision", res.get("action")) == "BLOCK":
                 st.session_state.blocked_requests += 1
-            elif res["action"] == "FLAG":
+            elif res.get("decision", res.get("action")) == "FLAG":
                 st.session_state.flagged_requests += 1
             else:
                 st.session_state.allowed_requests += 1
@@ -2976,7 +3275,7 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
             
         if history_records:
             df_log = pd.DataFrame(history_records)
-            cols_to_show = ["timestamp", "action", "risk_score", "confidence", "prompt", "original_user_prompt", "image_generation_prompt", "intent", "final_action", "selected_provider_model", "reason"]
+            cols_to_show = ["timestamp", "action", "risk_score", "safety_score", "injection_score", "confidence", "prompt", "original_user_prompt", "image_generation_prompt", "intent", "final_action", "selected_provider_model", "reason"]
             existing_cols = [c for c in cols_to_show if c in df_log.columns]
             
             st.dataframe(
@@ -2985,6 +3284,8 @@ elif nav_choice == "📊 Telemetry & Audit Logs":
                     "timestamp": "Timestamp",
                     "action": "Decision",
                     "risk_score": st.column_config.NumberColumn("Risk Score", format="%.2f"),
+                    "safety_score": st.column_config.NumberColumn("Safety Score", format="%.2f"),
+                    "injection_score": st.column_config.NumberColumn("Injection Score", format="%.2f"),
                     "confidence": st.column_config.NumberColumn("Confidence", format="%.2f"),
                     "prompt": "Prompt Content",
                     "original_user_prompt": "Original Request",
