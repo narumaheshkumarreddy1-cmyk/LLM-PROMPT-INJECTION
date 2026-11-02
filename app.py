@@ -14,8 +14,13 @@ import urllib.parse
 from PIL import Image
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import toml
+try:
+    import toml
+except ImportError:
+    try:
+        import tomllib as toml
+    except ImportError:
+        toml = None
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIGURATION & DASHBOARD THEME STYLING
@@ -382,7 +387,7 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
     secrets_path = os.path.join(".streamlit", "secrets.toml")
     existing_secrets = {}
     try:
-        if os.path.exists(secrets_path):
+        if toml is not None and hasattr(toml, "load") and os.path.exists(secrets_path):
             with open(secrets_path, "r", encoding="utf-8") as f:
                 existing_secrets = toml.load(f)
     except Exception:
@@ -452,10 +457,11 @@ def save_persistent_secrets(groq_key=None, groq_model=None, openai_key=None):
 
     saved_to_disk = False
     try:
-        os.makedirs(os.path.dirname(secrets_path) or ".", exist_ok=True)
-        with open(secrets_path, "w", encoding="utf-8") as f:
-            toml.dump(existing_secrets, f)
-        saved_to_disk = True
+        if toml is not None and hasattr(toml, "dump"):
+            os.makedirs(os.path.dirname(secrets_path) or ".", exist_ok=True)
+            with open(secrets_path, "w", encoding="utf-8") as f:
+                toml.dump(existing_secrets, f)
+            saved_to_disk = True
     except (OSError, IOError, PermissionError):
         # Gracefully handle read-only filesystems (such as Streamlit Community Cloud)
         saved_to_disk = False
