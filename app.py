@@ -14,6 +14,7 @@ import urllib.parse
 from PIL import Image
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 try:
     import toml
 except ImportError:
