@@ -1670,6 +1670,86 @@ def create_canonical_security_result(user_prompt, inj_res=None, safety_res=None,
 
     return scan_record
 
+def perform_secondary_assessment(
+    user_prompt: str,
+    scan_record: dict,
+    engine_choice: str = "",
+    api_key: str = "",
+    block_threshold: float = 0.70,
+    flag_threshold: float = 0.30
+) -> dict:
+    """
+    Performs secondary context-aware assessment for uncertain/flagged requests.
+    Distinguishes:
+    1. Defensive / educational / safe inquiry with technical or dual-use terminology -> RESOLVED_SAFE (ALLOW)
+    2. Concealed / weaponized / adversarial harm -> ESCALATED_BLOCK (BLOCK)
+    3. Borderline ambiguous inquiries -> FLAG_WITH_GUARDRAILS (FLAG with enforced defensive constraints)
+    """
+    p_lower = user_prompt.lower().strip()
+
+    # Signals of defensive, educational, academic, or research context
+    defensive_signals = [
+        "in my lab", "in a controlled lab", "for defense", "defensive", "how to defend",
+        "how to prevent", "how to protect", "mitigation", "patching", "hardening",
+        "remediation", "educational purpose", "research purpose", "academic study",
+        "curriculum", "best practices", "secure coding", "how does an antivirus detect",
+        "detect explosives safely", "firearm safety", "sexual health", "suicide prevention"
+    ]
+    
+    # Signals of malicious execution, weaponization, or attack facilitation
+    malicious_signals = [
+        "attack victim", "exploit target", "weaponize", "covertly steal",
+        "steal credentials", "exfiltrate data", "bypass filter", "unauthorized access",
+        "bypass antivirus", "disable security", "make a bomb", "synthesize explosive",
+        "create a gun", "assassinate", "hurt someone", "harm someone"
+    ]
+
+    has_defensive_intent = any(sig in p_lower for sig in defensive_signals)
+    has_malicious_intent = any(sig in p_lower for sig in malicious_signals)
+
+    if has_defensive_intent and not has_malicious_intent:
+        scan_record["decision"] = "ALLOW"
+        scan_record["action"] = "ALLOW"
+        scan_record["security_decision"] = "ALLOW"
+        scan_record["final_action"] = "PENDING_ROUTING"
+        scan_record["policy_compliance_status"] = "Compliant (Resolved via Secondary Assessment)"
+        scan_record["secondary_assessment"] = "RESOLVED_SAFE"
+        scan_record["overall_risk_score"] = round(min(scan_record.get("overall_risk_score", 0.4), flag_threshold - 0.05), 2)
+        scan_record["risk_score"] = scan_record["overall_risk_score"]
+        scan_record["safety_score"] = round(1.0 - scan_record["overall_risk_score"], 2)
+        scan_record["detection_reason"] = (
+            "Secondary assessment confirmed defensive/educational context. "
+            "Cleared for standard processing with monitored logging."
+        )
+        return scan_record
+
+    if has_malicious_intent:
+        scan_record["decision"] = "BLOCK"
+        scan_record["action"] = "BLOCK"
+        scan_record["security_decision"] = "BLOCK"
+        scan_record["final_action"] = "BLOCK_REQUEST"
+        scan_record["policy_compliance_status"] = "Policy Violation / Escalated to Block"
+        scan_record["secondary_assessment"] = "ESCALATED_BLOCK"
+        scan_record["overall_risk_score"] = max(scan_record.get("overall_risk_score", 0.5), 0.92)
+        scan_record["risk_score"] = scan_record["overall_risk_score"]
+        scan_record["safety_score"] = round(1.0 - scan_record["overall_risk_score"], 2)
+        scan_record["detection_reason"] = (
+            "Secondary assessment identified actionable malicious harm/exploit indicators. Escalated to BLOCK."
+        )
+        return scan_record
+
+    # Borderline ambiguous: maintain FLAG with defensive guardrails
+    scan_record["decision"] = "FLAG"
+    scan_record["action"] = "FLAG"
+    scan_record["security_decision"] = "FLAG"
+    scan_record["policy_compliance_status"] = "Policy Warning Flagged (Guardrails Enforced)"
+    scan_record["secondary_assessment"] = "FLAG_WITH_GUARDRAILS"
+    scan_record["detection_reason"] = (
+        "Secondary assessment: Ambiguous/dual-use query monitored under safety threshold. "
+        "Downstream generation constrained by defensive guardrails."
+    )
+    return scan_record
+
 def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
     enable_det1 = st.session_state.get("enable_detector_1", True) if hasattr(st, "session_state") else True
     enable_det2 = st.session_state.get("enable_detector_2", True) if hasattr(st, "session_state") else True
@@ -1729,6 +1809,17 @@ def aggregate_security_pipeline(user_prompt, engine_choice, api_key):
         flag_threshold=flag_thresh,
         engine_choice=engine_choice
     )
+
+    # 4. Secondary Context-Aware Assessment for Uncertain / Flagged Requests
+    if scan_record.get("decision") == "FLAG":
+        scan_record = perform_secondary_assessment(
+            user_prompt=user_prompt,
+            scan_record=scan_record,
+            engine_choice=engine_choice,
+            api_key=api_key,
+            block_threshold=block_thresh,
+            flag_threshold=flag_thresh
+        )
     
     if hasattr(st, "session_state") and "audit_history" in st.session_state:
         st.session_state.audit_history.append(scan_record)
@@ -2134,21 +2225,31 @@ def resolve_semantic_routing(
 ) -> dict:
     """
     Final semantic routing decision integrating:
-    1. Current user message
-    2. Previous conversation context
-    3. Available uploaded files/images
-    4. Security decision (must be non-BLOCK)
-    5. LLM semantic intent classification
-    6. Confidence score
+    1. Mandatory security assessment (failsafe gating)
+    2. Current user message
+    3. Previous conversation context
+    4. Available uploaded files/images
+    5. Security decision (must be non-BLOCK)
+    6. LLM semantic intent classification
+    7. Confidence score
     """
-    if security_res and security_res.get("action") == "BLOCK":
+    # Defensive gating: Guarantee security check is executed before any routing
+    if security_res is None:
+        security_res = aggregate_security_pipeline(user_prompt, engine_choice, api_key)
+
+    is_blocked = (
+        str(security_res.get("action", "")).upper() == "BLOCK" or
+        str(security_res.get("decision", "")).upper() == "BLOCK"
+    )
+    if is_blocked:
+        block_reason = security_res.get("reason") or security_res.get("detection_reason", "Security policy violation.")
         return {
             "intent": "SECURITY_BLOCK",
             "confidence": 1.0,
             "action": ACTION_BLOCK,
             "secondary_action": None,
             "is_multi_action": False,
-            "reasoning": f"Halted by Security Gateway: {security_res.get('reason')}"
+            "reasoning": f"Halted by Security Gateway: {block_reason}"
         }
 
     classification = classify_intent_with_llm(
@@ -2301,6 +2402,14 @@ def craft_engineered_prompt(user_input, history_messages=None, engine_choice="",
     Does NOT generate an image.
     Supports multi-turn refinement (e.g. 'Make it cinematic').
     """
+    # Defensive gating: Validate safety before calling any model
+    p_check = scan_semantic_safety(user_input, engine_choice, api_key)
+    if str(p_check.get("label", "SAFE")).upper() == "UNSAFE" or p_check.get("risk_score", 0.0) >= 0.70:
+        return (
+            "🛑 **Prompt Engineering Intercepted**: The requested subject violates our AI safety guidelines "
+            f"({p_check.get('category', 'HARMFUL_CONTENT')}). An optimized visual generation prompt cannot be created."
+        )
+
     effective_key = api_key or st.session_state.get("custom_api_key", "")
     
     prev_prompt_context = ""
@@ -2394,12 +2503,31 @@ def craft_engineered_prompt(user_input, history_messages=None, engine_choice="",
 def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key, security_res=None, uploaded_file=None):
     query_lower = user_input.lower().strip()
 
-    # 1. Strict Security Decision Pre-Check: If BLOCK -> STOP immediately!
-    if security_res and (security_res.get("decision") == "BLOCK" or security_res.get("action") == "BLOCK"):
+    # Defensive gating: Mandate security check before any processing
+    if security_res is None:
+        security_res = aggregate_security_pipeline(user_input, engine_choice, api_key)
+
+    is_blocked = (
+        str(security_res.get("decision", "")).upper() == "BLOCK" or
+        str(security_res.get("action", "")).upper() == "BLOCK"
+    )
+    if is_blocked:
         cat_disp = security_res.get("threat_category", security_res.get("semantic_category", "SECURITY_POLICY_VIOLATION"))
         reason_disp = security_res.get("detection_reason", security_res.get("reason", "Security rule triggered."))
         risk_disp = security_res.get("overall_risk_score", security_res.get("risk_score", 0.95))
         guidance = generate_proper_ai_guidance(user_input, cat_disp, reason_disp)
+
+        # Synchronize telemetry across all metrics
+        security_res["intent"] = "SECURITY_BLOCK"
+        security_res["detected_intent"] = "SECURITY_BLOCK"
+        security_res["final_action"] = "BLOCK_REQUEST"
+        if hasattr(st, "session_state") and st.session_state.get("audit_history"):
+            st.session_state.audit_history[-1].update({
+                "intent": "SECURITY_BLOCK",
+                "detected_intent": "SECURITY_BLOCK",
+                "final_action": "BLOCK_REQUEST"
+            })
+
         return {
             "type": "text",
             "content": f"🛑 **Security Policy Violation (HTTP 403 Blocked)**\n\n"
@@ -2412,6 +2540,21 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                        f"---\n"
                        f"*If you believe this is a false positive, inspect the Telemetry & Audit Logs or adjust security thresholds.*"
         }
+
+    is_flagged = bool(
+        str(security_res.get("decision", "")).upper() == "FLAG" or
+        str(security_res.get("action", "")).upper() == "FLAG"
+    )
+
+    def wrap_guardrail_output(resp_dict):
+        if is_flagged and isinstance(resp_dict, dict) and "content" in resp_dict:
+            flag_banner = (
+                "> ⚠️ **AI Safety Gateway Notice:** *This request triggered an audit flag "
+                f"(`{security_res.get('threat_category', 'SUSPICIOUS_CONTENT')}`, Risk: {security_res.get('risk_score', 0.5):.2f}). "
+                "Secondary assessment verified that responses are strictly restricted to educational/defensive guidance.*\n\n"
+            )
+            resp_dict["content"] = flag_banner + resp_dict["content"]
+        return resp_dict
 
     # 2. Upload status
     has_file = bool(uploaded_file)
@@ -2557,6 +2700,15 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                         },
                         {"role": "user", "content": user_input}
                     ]
+                    if is_flagged:
+                        code_msgs.append({
+                            "role": "system",
+                            "content": (
+                                "DEFENSIVE SAFETY DIRECTIVE: The user request is flagged for audit monitoring. "
+                                "Strictly avoid generating exploit payloads, unauthorized scanners, or harmful code. "
+                                "Provide only secure, defensive coding patterns with proper validation."
+                            )
+                        })
                     resp = groq_client.chat.completions.create(
                         model=m_try,
                         messages=code_msgs,
@@ -2565,7 +2717,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     )
                     code_content = resp.choices[0].message.content
                     if code_content and code_content.strip():
-                        return {"type": "text", "content": code_content}
+                        return wrap_guardrail_output({"type": "text", "content": code_content})
                 except Exception as e:
                     print(f"[GROQ CODE ERROR with {m_try}]: {e}")
                     continue
@@ -2622,6 +2774,15 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
         "When explaining concepts, frameworks, or roadmaps, provide detailed phase-by-phase breakdowns, tables, milestones, and actionable examples."
     )
     formatted_messages = [{"role": "system", "content": system_instruction}]
+    if is_flagged:
+        formatted_messages.append({
+            "role": "system",
+            "content": (
+                "DEFENSIVE SAFETY DIRECTIVE: This request is under security monitoring. "
+                "Provide strictly defensive, conceptual, educational, or safety-prevention guidance. "
+                "Do NOT provide operational instructions for harm, dangerous materials, weapons, or bypasses."
+            )
+        })
     for msg in history_messages[-6:]:
         role = msg.get("role")
         if role == "user":
@@ -2655,7 +2816,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                 )
                 llm_text = resp.choices[0].message.content
                 if llm_text and llm_text.strip():
-                    return {"type": "text", "content": llm_text}
+                    return wrap_guardrail_output({"type": "text", "content": llm_text})
             except Exception as e:
                 err_str = str(e)
                 print(f"[GROQ CHAT ERROR with {m_try}]: {err_str}")
@@ -2679,7 +2840,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             resp = ollama.chat(model='llama3.2', messages=formatted_messages)
             ans_text = resp['message']['content'] if hasattr(resp, '__getitem__') else getattr(resp.message, 'content', str(resp))
             if ans_text and len(ans_text.strip()) > 0:
-                return {"type": "text", "content": ans_text}
+                return wrap_guardrail_output({"type": "text", "content": ans_text})
         except Exception:
             pass
 
@@ -2700,7 +2861,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             f"```\n\n"
             f"You can render this diagram in any Markdown viewer or tool that supports Mermaid."
         )
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif any(w in query_lower for w in ["road", "roadmap", "curriculum", "syllabus", "30 day", "30-day", "learning path", "study plan", "study guide"]):
         topic_name = "Python Programming" if any(w in query_lower for w in ["py", "python"]) else "Software Development"
@@ -2721,7 +2882,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
             f"3. **30 mins:** Mini-project iteration and Git commit.\n\n"
             f"*(Generated by LLM Security Gateway Intelligence Engine)*"
         )
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif "java" in query_lower and not any(w in query_lower for w in ["javascript", "script"]):
         text_out = ("### ☕ Java Programming Language Overview\n\n"
@@ -2737,7 +2898,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "    }\n"
                     "}\n"
                     "```")
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
     
     elif ("python" in query_lower or query_lower == "py") and not ("prime" in query_lower and "code" in query_lower):
         text_out = ("### 🐍 Python Programming Language Overview\n\n"
@@ -2751,7 +2912,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "    return f\"Hello {name}, welcome to Python!\"\n"
                     "print(greet(\"Developer\"))\n"
                     "```")
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif "prime" in query_lower and any(w in query_lower for w in ["code", "check", "number", "function", "program"]):
         text_out = ("### 🔢 Optimized Prime Number Algorithm\n\n"
@@ -2768,7 +2929,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "print(is_prime(29))  # Returns True\n"
                     "print(is_prime(10))  # Returns False\n"
                     "```")
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif any(w in query_lower for w in ["firewall", "cyber", "security", "defense", "shield"]):
         text_out = ("### 🛡️ Cyber Security Firewall Architecture\n\n"
@@ -2777,7 +2938,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "- **Signature Matching:** Scans input for regex patterns (e.g. Prompt Injections, SQLi, XSS).\n"
                     "- **Semantic Intent Guard:** Measures cosine similarity against known adversarial embedding clusters.\n"
                     "- **Output Sanitization:** Filters model outputs for secret leaks, PII, or unsafe code execution.\n")
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif any(w in query_lower for w in ["injection", "prompt injection", "jailbreak"]):
         text_out = ("### 🔍 Understanding Prompt Injection Attacks\n\n"
@@ -2786,7 +2947,7 @@ def generate_chatbot_answer(user_input, history_messages, engine_choice, api_key
                     "- **Direct Prompt Injection:** The user explicitly instructs the model to ignore previous system instructions.\n"
                     "- **Indirect Prompt Injection:** Adversarial text embedded within retrieved documents, web pages, or PDFs.\n"
                     "- **Jailbreaking:** Persona adoption techniques (e.g., DAN mode, Developer Mode) to bypass safety filters.\n")
-        return {"type": "text", "content": text_out}
+        return wrap_guardrail_output({"type": "text", "content": text_out})
 
     elif any(w in query_lower for w in ["road", "roadmap", "learn", "study", "curriculum", "syllabus", "path", "guide me"]) and any(w in query_lower for w in ["basic", "beginner", "start", "scratch", "learn", "how to"]):
         clean_topic = re.sub(r"(?i)\b(can you give me|can you provide|give me|provide|tell me|show me|a road to learn from basic|a roadmap for|a roadmap to learn|roadmap|learning path|from basic|from basics|from scratch)\b", "", user_input).strip().strip("?:., ")
